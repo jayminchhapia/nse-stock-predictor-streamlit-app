@@ -297,7 +297,7 @@ elif page == "📈 Portfolio Dashboard":
                 with col_c:
                     if st.button(f"Remove", key=f"remove_{stock}"):
                         st.session_state.watchlist.remove(stock)
-                        st.experimental_rerun()
+                        st.rerun()
         else:
             st.info("No stocks in watchlist. Add some stocks from the Analysis page!")
     
@@ -308,7 +308,7 @@ elif page == "📈 Portfolio Dashboard":
             if new_stock not in st.session_state.watchlist:
                 st.session_state.watchlist.append(new_stock)
                 st.success(f"Added {new_stock}!")
-                st.experimental_rerun()
+                st.rerun()
             else:
                 st.warning(f"{new_stock} already in watchlist!")
     
@@ -417,7 +417,7 @@ elif page == "📋 Analysis History":
         if st.button("🗑️ Clear History"):
             st.session_state.analysis_history = []
             st.success("History cleared!")
-            st.experimental_rerun()
+            st.rerun()
             
         # Download history
         csv = history_df.to_csv(index=False)
