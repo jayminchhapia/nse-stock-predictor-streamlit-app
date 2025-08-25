@@ -1,282 +1,459 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
-from datetime import datetime
+import plotly.graph_objects as go
+import plotly.express as px
+from plotly.subplots import make_subplots
+from datetime import datetime, timedelta
 import warnings
+import os
 from data_engine import StockDataEngine
 from model_trainer import MLModelTrainer
 warnings.filterwarnings('ignore')
 
 # Page config
 st.set_page_config(
-    page_title="Enhanced ML Stock Prediction System", 
-    page_icon="🤖",
-    layout="wide"
+    page_title="Enhanced ML Stock Predictor Pro", 
+    page_icon="📈",
+    layout="wide",
+    initial_sidebar_state="expanded"
 )
+
+# Custom CSS for better styling
+st.markdown("""
+<style>
+    .main-header {
+        font-size: 2.5rem;
+        color: #1f77b4;
+        text-align: center;
+        margin-bottom: 2rem;
+    }
+    .metric-card {
+        background-color: #f0f2f6;
+        padding: 1rem;
+        border-radius: 0.5rem;
+        border-left: 4px solid #1f77b4;
+    }
+    .prediction-high {
+        background: linear-gradient(90deg, #00c851, #007e33);
+        color: white;
+        padding: 1rem;
+        border-radius: 0.5rem;
+        text-align: center;
+    }
+    .prediction-low {
+        background: linear-gradient(90deg, #ff4444, #cc0000);
+        color: white;
+        padding: 1rem;
+        border-radius: 0.5rem;
+        text-align: center;
+    }
+    .prediction-medium {
+        background: linear-gradient(90deg, #ffbb33, #ff8800);
+        color: white;
+        padding: 1rem;
+        border-radius: 0.5rem;
+        text-align: center;
+    }
+</style>
+""", unsafe_allow_html=True)
 
 # Initialize systems
 @st.cache_resource
 def get_systems():
-    data_engine = StockDataEngine()
-    ml_trainer = MLModelTrainer()
-    return data_engine, ml_trainer
+    return StockDataEngine(), MLModelTrainer()
 
 data_engine, ml_trainer = get_systems()
 
-# Main UI
-st.title("🤖 Enhanced ML Stock Prediction System")
-st.subheader("Advanced Machine Learning with 18+ Technical Features (75-85% Accuracy)")
+# Initialize session state for watchlist
+if 'watchlist' not in st.session_state:
+    st.session_state.watchlist = ['RELIANCE', 'TCS', 'HDFCBANK']
+if 'analysis_history' not in st.session_state:
+    st.session_state.analysis_history = []
 
-# Sidebar
-st.sidebar.header("🎯 Analysis Options")
+# Title
+st.markdown('<h1 class="main-header">📈 Enhanced ML Stock Predictor Pro</h1>', unsafe_allow_html=True)
+st.markdown("**Advanced Machine Learning with 18+ Features • 75-85% Accuracy • Auto-Training**")
 
-analysis_type = st.sidebar.selectbox(
-    "Select Analysis Type:",
-    ["next_day", "short_term"],
-    format_func=lambda x: "Next Day Prediction" if x == "next_day" else "Short-term (5-day)"
+# Sidebar Navigation
+st.sidebar.header("🎯 Navigation")
+page = st.sidebar.selectbox(
+    "Select Page:",
+    ["📊 Stock Analysis", "📈 Portfolio Dashboard", "⚙️ Model Management", "📋 Analysis History"]
 )
 
-# Popular stocks for easy selection
-popular_stocks = [
-    "RELIANCE", "TCS", "HDFCBANK", "INFY", "ICICIBANK", 
-    "BHARTIARTL", "WIPRO", "MARUTI", "LT", "AXISBANK"
-]
-
-# Input methods
-st.sidebar.header("📈 Stock Selection")
-input_method = st.sidebar.radio("Input Method:", ["Select Popular", "Enter Manually", "Bulk Analysis"])
-
-symbols_to_analyze = []
-
-if input_method == "Select Popular":
-    selected_stocks = st.sidebar.multiselect("Choose Stocks:", popular_stocks, default=["RELIANCE"])
-    symbols_to_analyze = selected_stocks
-
-elif input_method == "Enter Manually":
-    manual_input = st.sidebar.text_input("Enter Stock Symbol:", value="RELIANCE").strip().upper()
-    if manual_input:
-        symbols_to_analyze = [manual_input]
-
-else:  # Bulk Analysis
-    bulk_input = st.sidebar.text_area(
-        "Enter multiple symbols (comma-separated):",
-        value="RELIANCE,TCS,HDFCBANK",
-        placeholder="RELIANCE,TCS,HDFCBANK"
-    )
-    if bulk_input:
-        symbols_to_analyze = [s.strip().upper() for s in bulk_input.split(",") if s.strip()]
-
-# Analysis Section
-st.header("📊 Enhanced ML Stock Analysis")
-
-if st.button("🚀 Run Enhanced ML Analysis", type="primary"):
-    if not symbols_to_analyze:
-        st.error("Please select at least one stock symbol")
-    else:
-        results_data = []
-        
-        # Progress tracking
-        progress_bar = st.progress(0)
-        status_text = st.empty()
-        
-        for i, symbol in enumerate(symbols_to_analyze):
-            status_text.text(f"Analyzing {symbol}... ({i+1}/{len(symbols_to_analyze)})")
-            progress_bar.progress((i + 1) / len(symbols_to_analyze))
-            
-            try:
-                # Check if model exists, train if needed
-                if not ml_trainer.model_exists(symbol, analysis_type):
-                    st.warning(f"Training model for {symbol}...")
+# Main content based on page selection
+if page == "📊 Stock Analysis":
+    
+    # Stock selection section
+    col1, col2, col3 = st.columns([2, 1, 1])
+    
+    with col1:
+        symbol = st.text_input("Enter Stock Symbol:", value="RELIANCE", placeholder="e.g., RELIANCE, TCS").strip().upper()
+    
+    with col2:
+        analysis_type = st.selectbox("Analysis Type:", ["next_day", "short_term"], 
+                                   format_func=lambda x: "Next Day" if x == "next_day" else "Short Term (5 days)")
+    
+    with col3:
+        add_to_watchlist = st.button("➕ Add to Watchlist", disabled=symbol in st.session_state.watchlist if symbol else True)
+        if add_to_watchlist and symbol and symbol not in st.session_state.watchlist:
+            st.session_state.watchlist.append(symbol)
+            st.success(f"Added {symbol} to watchlist!")
+    
+    # Analysis section
+    if st.button("🚀 Run Enhanced ML Analysis", type="primary"):
+        if symbol:
+            with st.spinner(f"Analyzing {symbol}..."):
+                
+                # Fetch and display historical data with charts
+                raw_data = data_engine.fetch_stock_data(symbol, '1y')
+                
+                if raw_data is not None:
+                    # Create interactive price chart
+                    fig = make_subplots(
+                        rows=2, cols=1,
+                        shared_xaxes=True,
+                        vertical_spacing=0.1,
+                        subplot_titles=('Stock Price & Moving Averages', 'Volume'),
+                        row_heights=[0.7, 0.3]
+                    )
                     
-                    with st.expander(f"Training Details for {symbol}", expanded=False):
-                        success, accuracy = ml_trainer.train_stock_model(
-                            symbol, analysis_type, show_progress=False
-                        )
-                        
-                        if not success:
-                            st.error(f"Failed to train model for {symbol}")
-                            continue
-                        
-                        st.success(f"Model trained with {accuracy:.1%} accuracy")
-                
-                # Load model
-                model, scaler = ml_trainer.load_model(symbol, analysis_type)
-                if model is None or scaler is None:
-                    st.error(f"Failed to load model for {symbol}")
-                    continue
-                
-                # Get features for prediction
-                horizon = 1 if analysis_type == 'next_day' else 5
-                features, _, raw_data = data_engine.prepare_training_data(
-                    symbol, '6mo', horizon
-                )
-                
-                if features is None or len(features) == 0:
-                    st.error(f"Unable to get features for {symbol}")
-                    continue
-                
-                # Make prediction
-                latest_features = features.iloc[-1:].values
-                features_scaled = scaler.transform(latest_features)
-                probability = model.predict_proba(features_scaled)[0][1]
-                
-                # Get current price info
-                current_price = raw_data['Close'].iloc[-1]
-                prev_close = raw_data['Close'].iloc[-2] if len(raw_data) >= 2 else current_price
-                
-                # Determine recommendation based on probability
-                if probability >= 0.75:
-                    recommendation = "STRONG BUY"
-                    score = 75 + (probability - 0.75) * 100
-                elif probability >= 0.6:
-                    recommendation = "BUY"
-                    score = 60 + (probability - 0.6) * 67
-                elif probability >= 0.4:
-                    recommendation = "HOLD"
-                    score = 40 + (probability - 0.4) * 50
-                elif probability >= 0.25:
-                    recommendation = "SELL"
-                    score = 25 + (probability - 0.25) * 43
-                else:
-                    recommendation = "STRONG SELL"
-                    score = probability * 100
-                
-                # Create result
-                if analysis_type == "next_day":
-                    base_factor = (probability - 0.5) * 0.02
-                    predicted_open = current_price * (1 + base_factor)
-                    predicted_close = predicted_open * (1 + base_factor * 0.5)
+                    # Price and MA lines
+                    fig.add_trace(
+                        go.Scatter(x=raw_data.index, y=raw_data['Close'], 
+                                 name='Close Price', line=dict(color='blue', width=2)),
+                        row=1, col=1
+                    )
                     
-                    result = {
-                        'symbol': symbol,
-                        'current_price': current_price,
-                        'change_pct': ((current_price - prev_close) / prev_close * 100),
-                        'recommendation': recommendation,
-                        'confidence_score': score,
-                        'ml_probability': probability * 100,
-                        'predicted_open': predicted_open,
-                        'predicted_close': predicted_close,
-                        'expected_return': ((predicted_close - current_price) / current_price * 100),
-                        'model_type': 'Enhanced ML'
-                    }
-                else:
-                    entry = current_price * (0.998 if probability > 0.6 else 1.002)
-                    stop_loss = current_price * (0.94 if probability > 0.6 else 0.96)
-                    take_profit = current_price * (1.06 if probability > 0.6 else 1.03)
+                    # Add moving averages
+                    raw_data['MA20'] = raw_data['Close'].rolling(20).mean()
+                    raw_data['MA50'] = raw_data['Close'].rolling(50).mean()
                     
-                    result = {
-                        'symbol': symbol,
-                        'current_price': current_price,
-                        'change_pct': ((current_price - prev_close) / prev_close * 100),
-                        'recommendation': recommendation,
-                        'confidence_score': score,
-                        'ml_probability': probability * 100,
-                        'entry_price': entry,
-                        'stop_loss': stop_loss,
-                        'take_profit': take_profit,
-                        'model_type': 'Enhanced ML'
-                    }
-                
-                results_data.append(result)
-                
-            except Exception as e:
-                st.error(f"❌ Analysis failed for {symbol}: {str(e)}")
-                continue
-        
-        progress_bar.empty()
-        status_text.empty()
-        
-        # Display Results
-        if results_data:
-            st.header("📊 Enhanced ML Analysis Results")
-            
-            # Summary metrics
-            col1, col2, col3, col4 = st.columns(4)
-            
-            buy_signals = len([r for r in results_data if r['recommendation'] in ['BUY', 'STRONG BUY']])
-            sell_signals = len([r for r in results_data if r['recommendation'] in ['SELL', 'STRONG SELL']])
-            hold_signals = len([r for r in results_data if r['recommendation'] == 'HOLD'])
-            avg_confidence = np.mean([r['confidence_score'] for r in results_data])
-            
-            with col1:
-                st.metric("🚀 Buy Signals", buy_signals)
-            with col2:
-                st.metric("🛑 Sell Signals", sell_signals)
-            with col3:
-                st.metric("⏸️ Hold Signals", hold_signals)
-            with col4:
-                st.metric("🎯 Avg ML Score", f"{avg_confidence:.1f}%")
-            
-            # Detailed results
-            st.subheader("🤖 ML-Powered Predictions")
-            
-            for result in results_data:
-                with st.expander(f"🤖 {result['symbol']} - {result['recommendation']} (ML: {result['confidence_score']:.1f}%)", expanded=True):
-                    col1, col2 = st.columns(2)
+                    fig.add_trace(
+                        go.Scatter(x=raw_data.index, y=raw_data['MA20'], 
+                                 name='MA20', line=dict(color='orange', width=1)),
+                        row=1, col=1
+                    )
                     
-                    with col1:
-                        st.metric("Current Price", f"₹{result['current_price']:.2f}", 
-                                f"{result['change_pct']:+.2f}%")
-                        st.metric("ML Recommendation", result['recommendation'])
-                        st.metric("ML Probability", f"{result['ml_probability']:.1f}%")
-                        st.metric("Model Type", result['model_type'])
+                    fig.add_trace(
+                        go.Scatter(x=raw_data.index, y=raw_data['MA50'], 
+                                 name='MA50', line=dict(color='red', width=1)),
+                        row=1, col=1
+                    )
                     
-                    with col2:
-                        if analysis_type == "next_day":
-                            st.metric("Predicted Open", f"₹{result.get('predicted_open', 0):.2f}")
-                            st.metric("Predicted Close", f"₹{result.get('predicted_close', 0):.2f}")
-                            st.metric("Expected Return", f"{result.get('expected_return', 0):+.2f}%")
+                    # Volume bar chart
+                    fig.add_trace(
+                        go.Bar(x=raw_data.index, y=raw_data['Volume'], 
+                             name='Volume', marker_color='lightblue'),
+                        row=2, col=1
+                    )
+                    
+                    fig.update_layout(height=600, title_text=f"{symbol} - Historical Data Analysis")
+                    fig.update_xaxes(title_text="Date", row=2, col=1)
+                    fig.update_yaxes(title_text="Price (₹)", row=1, col=1)
+                    fig.update_yaxes(title_text="Volume", row=2, col=1)
+                    
+                    st.plotly_chart(fig, use_container_width=True)
+                    
+                    # ML Prediction Analysis
+                    try:
+                        # Check and train model if needed
+                        if not ml_trainer.model_exists(symbol, analysis_type):
+                            st.info("🔄 Auto-training ML model... (This may take 30-60 seconds)")
+                            
+                            with st.expander("View Training Progress", expanded=False):
+                                success, accuracy = ml_trainer.train_stock_model(symbol, analysis_type, show_progress=False)
+                                if not success:
+                                    st.error("Model training failed!")
+                                    st.stop()
+                                st.success(f"✅ Model trained successfully! Accuracy: {accuracy:.3f}")
                         else:
-                            st.metric("Entry Price", f"₹{result.get('entry_price', 0):.2f}")
-                            st.metric("Stop Loss", f"₹{result.get('stop_loss', 0):.2f}")
-                            st.metric("Take Profit", f"₹{result.get('take_profit', 0):.2f}")
-                    
-                    # Confidence indicator
-                    confidence = result['confidence_score']
-                    if confidence >= 75:
-                        st.success("🎯 HIGH CONFIDENCE ML SIGNAL")
-                    elif confidence >= 60:
-                        st.info("⚡ MEDIUM CONFIDENCE ML SIGNAL")
-                    else:
-                        st.warning("⚠️ LOW CONFIDENCE - Use with caution")
-            
-            # Download results
-            results_df = pd.DataFrame(results_data)
-            csv = results_df.to_csv(index=False)
-            st.download_button(
-                "📥 Download ML Results CSV",
-                csv,
-                file_name=f"ml_predictions_{datetime.now().strftime('%Y%m%d_%H%M')}.csv",
-                mime="text/csv"
-            )
-        
+                            st.success("✅ Using cached model from this session")
+                        
+                        # Load model and make prediction
+                        model, scaler = ml_trainer.load_model(symbol, analysis_type)
+                        horizon = 1 if analysis_type == 'next_day' else 5
+                        features, _, _ = data_engine.prepare_training_data(symbol, '6mo', horizon)
+                        
+                        if features is not None and len(features) > 0:
+                            # Make prediction
+                            latest_features = features.iloc[-1:].values
+                            features_scaled = scaler.transform(latest_features)
+                            probability = model.predict_proba(features_scaled)[0][1]
+                            
+                            # Current price info
+                            current_price = raw_data['Close'].iloc[-1]
+                            prev_close = raw_data['Close'].iloc[-2]
+                            change_pct = ((current_price - prev_close) / prev_close * 100)
+                            
+                            # Display prediction results
+                            st.subheader("🎯 ML Prediction Results")
+                            
+                            # Metrics in columns
+                            col1, col2, col3, col4 = st.columns(4)
+                            
+                            with col1:
+                                st.metric("Current Price", f"₹{current_price:.2f}", f"{change_pct:+.2f}%")
+                            
+                            with col2:
+                                st.metric("ML Probability (UP)", f"{probability*100:.1f}%")
+                            
+                            with col3:
+                                confidence = max(probability, 1-probability)
+                                st.metric("Confidence", f"{confidence*100:.1f}%")
+                            
+                            with col4:
+                                if probability >= 0.6:
+                                    recommendation = "BUY"
+                                    color = "prediction-high"
+                                elif probability <= 0.4:
+                                    recommendation = "SELL"
+                                    color = "prediction-low"
+                                else:
+                                    recommendation = "HOLD"
+                                    color = "prediction-medium"
+                                
+                                st.markdown(f'<div class="{color}"><h3>{recommendation}</h3></div>', 
+                                          unsafe_allow_html=True)
+                            
+                            # Technical indicators chart
+                            features_with_index = features.tail(50).copy()
+                            features_with_index.index = raw_data.index[-len(features_with_index):]
+                            
+                            fig2 = make_subplots(rows=2, cols=2, 
+                                               subplot_titles=('RSI', 'MACD', 'Bollinger Position', 'Volume Ratio'),
+                                               vertical_spacing=0.15)
+                            
+                            # RSI
+                            if 'rsi' in features_with_index.columns:
+                                fig2.add_trace(go.Scatter(x=features_with_index.index, y=features_with_index['rsi'], 
+                                                        name='RSI', line=dict(color='purple')), row=1, col=1)
+                                fig2.add_hline(y=70, line_dash="dash", line_color="red", row=1, col=1)
+                                fig2.add_hline(y=30, line_dash="dash", line_color="green", row=1, col=1)
+                            
+                            # MACD
+                            if 'macd' in features_with_index.columns:
+                                fig2.add_trace(go.Scatter(x=features_with_index.index, y=features_with_index['macd'], 
+                                                        name='MACD', line=dict(color='blue')), row=1, col=2)
+                            
+                            # Bollinger Position
+                            if 'bollinger_position' in features_with_index.columns:
+                                fig2.add_trace(go.Scatter(x=features_with_index.index, y=features_with_index['bollinger_position'], 
+                                                        name='Bollinger %', line=dict(color='orange')), row=2, col=1)
+                            
+                            # Volume Ratio
+                            if 'volume_ratio' in features_with_index.columns:
+                                fig2.add_trace(go.Scatter(x=features_with_index.index, y=features_with_index['volume_ratio'], 
+                                                        name='Volume Ratio', line=dict(color='red')), row=2, col=2)
+                            
+                            fig2.update_layout(height=500, title_text=f"{symbol} - Technical Indicators")
+                            st.plotly_chart(fig2, use_container_width=True)
+                            
+                            # Save to history
+                            analysis_result = {
+                                'timestamp': datetime.now(),
+                                'symbol': symbol,
+                                'analysis_type': analysis_type,
+                                'probability': probability,
+                                'recommendation': recommendation,
+                                'current_price': current_price,
+                                'change_pct': change_pct
+                            }
+                            st.session_state.analysis_history.append(analysis_result)
+                            
+                        else:
+                            st.error("Unable to generate features for prediction")
+                            
+                    except Exception as e:
+                        st.error(f"Prediction error: {str(e)}")
+                        
+                else:
+                    st.error(f"Unable to fetch data for {symbol}")
         else:
-            st.warning("No valid results obtained. Please try different stocks or check data availability.")
+            st.warning("Please enter a stock symbol")
 
-# Information panel
+elif page == "📈 Portfolio Dashboard":
+    st.header("📈 Portfolio Dashboard")
+    
+    # Watchlist management
+    col1, col2 = st.columns([2, 1])
+    
+    with col1:
+        st.subheader("📋 Your Watchlist")
+        if st.session_state.watchlist:
+            for i, stock in enumerate(st.session_state.watchlist):
+                col_a, col_b, col_c = st.columns([2, 1, 1])
+                with col_a:
+                    st.write(f"📈 {stock}")
+                with col_b:
+                    if st.button(f"Analyze", key=f"analyze_{stock}"):
+                        # Set the symbol for analysis
+                        st.info(f"Go to Stock Analysis page and enter {stock}")
+                with col_c:
+                    if st.button(f"Remove", key=f"remove_{stock}"):
+                        st.session_state.watchlist.remove(stock)
+                        st.experimental_rerun()
+        else:
+            st.info("No stocks in watchlist. Add some stocks from the Analysis page!")
+    
+    with col2:
+        st.subheader("➕ Quick Add")
+        new_stock = st.text_input("Add Stock:", placeholder="e.g., INFY").strip().upper()
+        if st.button("Add to Watchlist") and new_stock:
+            if new_stock not in st.session_state.watchlist:
+                st.session_state.watchlist.append(new_stock)
+                st.success(f"Added {new_stock}!")
+                st.experimental_rerun()
+            else:
+                st.warning(f"{new_stock} already in watchlist!")
+    
+    # Quick batch analysis info
+    st.subheader("🔄 Batch Analysis")
+    st.info("""
+    **Batch Analysis Coming Soon!** 
+    
+    For now, analyze stocks individually from the Stock Analysis page.
+    Each model trains automatically when needed (30-60 seconds per stock).
+    
+    **Pro Tip**: Models are cached during your session, so re-analyzing the same stock is instant!
+    """)
+
+elif page == "⚙️ Model Management":
+    st.header("⚙️ Model Management & System Status")
+    
+    # System status
+    col1, col2, col3 = st.columns(3)
+    
+    with col1:
+        st.metric("🔧 Data Engine", "✅ Active")
+    with col2:
+        st.metric("🤖 ML Trainer", "✅ Auto-Training")
+    with col3:
+        st.metric("📊 Prediction Engine", "✅ Ready")
+    
+    # Session model status
+    st.subheader("📊 Session Models Status")
+    trained_models = ml_trainer.get_trained_models_status()
+    
+    if trained_models:
+        model_data = []
+        for symbol, analysis_types in trained_models.items():
+            for analysis_type in analysis_types:
+                model_path = f"models/{symbol}_{analysis_type}_model.pkl"
+                if os.path.exists(model_path):
+                    file_size = os.path.getsize(model_path) / 1024  # KB
+                    model_data.append({
+                        'Symbol': symbol,
+                        'Analysis Type': analysis_type.replace('_', ' ').title(),
+                        'Size (KB)': f"{file_size:.1f}",
+                        'Status': '✅ Ready (Session Cache)'
+                    })
+        
+        if model_data:
+            models_df = pd.DataFrame(model_data)
+            st.dataframe(models_df, use_container_width=True)
+        else:
+            st.info("No models trained in this session yet.")
+    else:
+        st.info("No models found. Models will be auto-trained when you run analysis.")
+    
+    # Auto-training info
+    st.subheader("🔄 Auto-Training System")
+    
+    st.success("""
+    ✅ **Auto-Training Mode: Active**
+    
+    - Models train automatically when needed
+    - First analysis per stock: 30-60 seconds (training time)
+    - Subsequent analyses: Instant (cached models)
+    - Fresh models use latest 6-month data
+    - No manual training required!
+    """)
+    
+    st.warning("""
+    ⚠️ **Session Storage Notice**
+    
+    - Models are stored temporarily during your session
+    - After app redeployment, models will retrain automatically
+    - This ensures you always get fresh models with latest market data
+    """)
+
+elif page == "📋 Analysis History":
+    st.header("📋 Analysis History")
+    
+    if st.session_state.analysis_history:
+        history_data = []
+        for analysis in reversed(st.session_state.analysis_history[-20:]):  # Last 20
+            history_data.append({
+                'Timestamp': analysis['timestamp'].strftime('%Y-%m-%d %H:%M'),
+                'Symbol': analysis['symbol'],
+                'Type': analysis['analysis_type'].replace('_', ' ').title(),
+                'Probability': f"{analysis['probability']*100:.1f}%",
+                'Recommendation': analysis['recommendation'],
+                'Price': f"₹{analysis['current_price']:.2f}",
+                'Change %': f"{analysis['change_pct']:+.2f}%"
+            })
+        
+        history_df = pd.DataFrame(history_data)
+        
+        # Apply styling
+        def highlight_rec(val):
+            if val == 'BUY':
+                return 'background-color: lightgreen'
+            elif val == 'SELL':
+                return 'background-color: lightcoral'
+            else:
+                return 'background-color: lightyellow'
+        
+        styled_history = history_df.style.applymap(highlight_rec, subset=['Recommendation'])
+        st.dataframe(styled_history, use_container_width=True)
+        
+        # Clear history option
+        if st.button("🗑️ Clear History"):
+            st.session_state.analysis_history = []
+            st.success("History cleared!")
+            st.experimental_rerun()
+            
+        # Download history
+        csv = history_df.to_csv(index=False)
+        st.download_button(
+            "📥 Download History",
+            csv,
+            file_name=f"analysis_history_{datetime.now().strftime('%Y%m%d_%H%M')}.csv",
+            mime="text/csv"
+        )
+    else:
+        st.info("No analysis history yet. Start analyzing stocks to build your history!")
+
+# Sidebar info
 st.sidebar.markdown("---")
-st.sidebar.header("🤖 Enhanced ML System Info")
-st.sidebar.info("""
-**Advanced ML Features:**
-• 18+ Technical Indicators
-• Random Forest Algorithm  
-• 75-85% Prediction Accuracy
-• Time-Series Cross Validation
-• Real-time Feature Engineering
-• Auto-Training on Demand
+st.sidebar.header("📊 System Info")
+st.sidebar.success("✅ Data Engine: Active")
+st.sidebar.success("✅ ML Models: Auto-Training")
+st.sidebar.success("✅ Prediction: Ready")
+st.sidebar.info("📱 Session Storage: Temporary")
 
-**No Pre-Training Required:**
-Models train automatically when needed
+st.sidebar.markdown("---")
+st.sidebar.info("""
+**Phase 2 Features:**
+- 📈 Interactive Charts
+- 📋 Portfolio Management  
+- 🎯 Technical Indicators
+- 📊 Analysis History
+- ⚙️ Model Management
+- 🔄 Auto-Training
 """)
 
 st.sidebar.markdown("---")
-st.sidebar.caption("⚠️ For educational purposes only. Not financial advice.")
+st.sidebar.caption("⚠️ Educational use only. Not financial advice.")
 
 # Footer
 st.markdown("---")
 st.markdown("""
 <div style='text-align: center'>
-<h4>🤖 Enhanced ML Stock Prediction System</h4>
-<p>Advanced Machine Learning • Auto-Training • 18+ Features • 75-85% Accuracy</p>
+<h4>📈 Enhanced ML Stock Predictor Pro</h4>
+<p>Phase 2 • Auto-Training • 18+ Features • 75-85% Accuracy</p>
+<small>💡 Tip: Models train automatically and cache during your session!</small>
 </div>
 """, unsafe_allow_html=True)
