@@ -8,9 +8,11 @@ from datetime import datetime, timedelta
 import warnings
 import os
 from data_engine import StockDataEngine
-import live_data_engine
-import market_analyzer
 from model_trainer import MLModelTrainer
+
+# NEW IMPORTS for Phase 3A
+from live_data_engine import live_engine
+from market_analyzer import market_analyzer
 warnings.filterwarnings('ignore')
 
 # Page config
@@ -439,7 +441,7 @@ elif page == "📡 Yahoo Live Stream":
     if st.button("🔄 Get Market Summary"):
         with st.spinner("Fetching market data..."):
             summary_symbols = st.session_state.watchlist[:10] if st.session_state.watchlist else ['RELIANCE', 'TCS', 'HDFCBANK', 'INFY', 'WIPRO']
-            summary = live_data_engine.get_market_summary(summary_symbols)
+            summary = live_engine.get_market_summary(summary_symbols)
             
             if summary:
                 col1, col2, col3, col4 = st.columns(4)
@@ -499,7 +501,7 @@ elif page == "📡 Yahoo Live Stream":
         
         if start_streaming:
             st.session_state.streaming_active = True
-            live_data_engine.refresh_interval = refresh_rate
+            live_engine.refresh_interval = refresh_rate
             
             # Create containers for live data display
             live_containers = {}
@@ -611,9 +613,9 @@ elif page == "📡 Yahoo Live Stream":
             
             # Add subscribers and start streaming
             for symbol in streaming_symbols:
-                live_data_engine.add_subscriber(symbol, price_update_callback)
+                live_engine.add_subscriber(symbol, price_update_callback)
             
-            live_data_engine.start_streaming(streaming_symbols)
+            live_engine.start_streaming(streaming_symbols)
             
             # Status updates
             status_container.success(f"🔴 Live streaming active for {len(streaming_symbols)} stocks | Refresh: {refresh_rate}s")
@@ -628,7 +630,7 @@ elif page == "📡 Yahoo Live Stream":
         
         if stop_streaming or st.session_state.get('stop_requested', False):
             if st.session_state.streaming_active:
-                live_data_engine.stop_streaming()
+                live_engine.stop_streaming()
                 st.session_state.streaming_active = False
                 st.success("🛑 Live streaming stopped")
     
@@ -644,7 +646,7 @@ elif page == "📡 Yahoo Live Stream":
         if st.button("📊 Get Price"):
             if check_symbol:
                 with st.spinner(f"Fetching data for {check_symbol}..."):
-                    price_data = live_data_engine.get_live_price(check_symbol)
+                    price_data = live_engine.get_live_price(check_symbol)
                     
                     if price_data:
                         col1, col2, col3 = st.columns(3)
@@ -673,7 +675,7 @@ elif page == "📡 Yahoo Live Stream":
     if st.button("📊 Check All Watchlist Prices"):
         if st.session_state.watchlist:
             with st.spinner("Fetching bulk data..."):
-                bulk_data = live_data_engine.get_multiple_prices(st.session_state.watchlist)
+                bulk_data = live_engine.get_multiple_prices(st.session_state.watchlist)
                 
                 if bulk_data:
                     # Create summary table
