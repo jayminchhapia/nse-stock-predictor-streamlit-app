@@ -83,7 +83,7 @@ st.markdown("**Advanced Machine Learning with 18+ Features • 75-85% Accuracy �
 st.sidebar.header("🎯 Navigation")
 page = st.sidebar.selectbox(
     "Select Page:",
-    ["📊 Stock Analysis", "📈 Portfolio Dashboard", "⚙️ Model Management", "📋 Analysis History", "📡 Yahoo Live Stream", "📈 Market Analysis"]
+    ["📊 Stock Analysis", "📈 Portfolio Dashboard", "⚙️ Model Management", "📋 Analysis History", "📈 Smart Live Dashboard", "📈 Market Analysis"]
 )
 
 # Main content based on page selection
@@ -431,177 +431,289 @@ elif page == "📋 Analysis History":
         st.info("No analysis history yet. Start analyzing stocks to build your history!")
 
 # Add this to your page selection options
-elif page == "📡 Yahoo Live Stream":
-    st.header("📡 Yahoo Finance Live Data Streaming")
-    st.caption("⏰ Data delayed by ~15 minutes | Updates every 30 seconds")
+elif page == "📈 Smart Live Dashboard":
+    st.header("📈 Smart Live Stock Dashboard")
+    st.caption("🔄 Real-time updates • 📱 Easy stock management • 🎯 ML-powered insights")
     
-    # Market summary section
-    st.subheader("📊 Market Overview")
+    # Initialize session state
+    if 'live_watchlist' not in st.session_state:
+        st.session_state.live_watchlist = ['RELIANCE', 'TCS', 'HDFCBANK']
+    if 'live_streaming' not in st.session_state:
+        st.session_state.live_streaming = False
+    if 'live_data' not in st.session_state:
+        st.session_state.live_data = {}
     
-    if st.button("🔄 Get Market Summary", key="market_summary_btn"):
-        with st.spinner("Fetching market data..."):
-            summary_symbols = st.session_state.watchlist[:10] if st.session_state.watchlist else ['RELIANCE', 'TCS', 'HDFCBANK', 'INFY', 'WIPRO']
-            summary = live_engine.get_market_summary(summary_symbols)
-            
-            if summary:
-                col1, col2, col3, col4 = st.columns(4)
-                
+    # === SIDEBAR: WATCHLIST MANAGEMENT ===
+    with st.sidebar:
+        st.header("📋 Manage Stocks")
+        
+        # Add new stock
+        st.subheader("➕ Add Stock")
+        new_symbol = st.text_input(
+            "Enter Stock Symbol:",
+            placeholder="e.g., INFY, WIPRO",
+            key="add_stock_input"
+        )
+        
+        col1, col2 = st.columns(2)
+        with col1:
+            if st.button("➕ Add", key="add_stock_btn") and new_symbol:
+                symbol = new_symbol.strip().upper()
+                if symbol and symbol not in st.session_state.live_watchlist:
+                    st.session_state.live_watchlist.append(symbol)
+                    st.success(f"Added {symbol}!")
+                    st.experimental_rerun()
+                elif symbol in st.session_state.live_watchlist:
+                    st.warning("Already in watchlist!")
+        
+        with col2:
+            # Quick add popular stocks
+            popular_stocks = ['INFY', 'WIPRO', 'AXISBANK', 'BAJFINANCE', 'MARUTI']
+            quick_add = st.selectbox("Quick Add:", ["Select..."] + popular_stocks, key="quick_add")
+            if quick_add != "Select..." and quick_add not in st.session_state.live_watchlist:
+                st.session_state.live_watchlist.append(quick_add)
+                st.success(f"Added {quick_add}!")
+                st.experimental_rerun()
+        
+        # Current watchlist with remove options
+        st.subheader("📊 Your Stocks")
+        if st.session_state.live_watchlist:
+            for i, stock in enumerate(st.session_state.live_watchlist):
+                col1, col2 = st.columns([3, 1])
                 with col1:
-                    st.metric("Total Stocks", summary['total_stocks'])
-                with col2:
-                    st.metric("Gainers", summary['gainers'])
-                with col3:
-                    st.metric("Losers", summary['losers'])
-                with col4:
-                    st.metric("Avg Change", f"{summary['avg_change_percent']:+.2f}%")
+                    # Show price if available
+                    if stock in st.session_state.live_data:
+                        price_data = st.session_state.live_data[stock]
+                        change_color = "🟢" if price_data.get('change', 0) >= 0 else "🔴"
+                        st.write(f"{change_color} **{stock}**: ₹{price_data.get('price', 0):.2f}")
+                    else:
+                        st.write(f"📈 **{stock}**")
                 
-                st.info(f"📅 Market: {summary['market_state']} | Updated: {summary['last_updated'].strftime('%H:%M:%S')}")
+                with col2:
+                    if st.button("🗑️", key=f"remove_{stock}_{i}", help=f"Remove {stock}"):
+                        st.session_state.live_watchlist.remove(stock)
+                        if stock in st.session_state.live_data:
+                            del st.session_state.live_data[stock]
+                        st.experimental_rerun()
+        else:
+            st.info("Add stocks to start monitoring!")
+        
+        # Streaming controls
+        st.subheader("🔄 Live Updates")
+        refresh_interval = st.slider("Update Every (seconds):", 15, 120, 30, step=15)
+        
+        # Start/Stop streaming
+        if not st.session_state.live_streaming:
+            if st.button("🔴 Start Live Updates", type="primary", key="start_live"):
+                if st.session_state.live_watchlist:
+                    st.session_state.live_streaming = True
+                    st.success("Live updates started!")
+                    st.experimental_rerun()
+                else:
+                    st.warning("Add stocks first!")
+        else:
+            if st.button("🛑 Stop Updates", key="stop_live"):
+                st.session_state.live_streaming = False
+                st.info("Live updates stopped")
+                st.experimental_rerun()
     
-    # Live streaming controls
-    st.subheader("🔴 Live Price Streaming")
+    # === MAIN AREA: LIVE DASHBOARD ===
     
-    col1, col2, col3 = st.columns([2, 1, 1])
-    
-    with col1:
-        streaming_symbols = st.multiselect(
-            "Select Stocks for Live Streaming:",
-            options=st.session_state.watchlist + ['RELIANCE', 'TCS', 'HDFCBANK', 'INFY', 'WIPRO', 'ADANIPORTS', 'ASIANPAINT'],
-            default=['RELIANCE'] if not st.session_state.watchlist else st.session_state.watchlist[:3],
-            key="streaming_symbols"
-        )
-    
-    with col2:
-        refresh_rate = st.selectbox(
-            "Refresh Rate:",
-            options=[15, 30, 60, 120],
-            index=1,
-            format_func=lambda x: f"{x} seconds",
-            key="refresh_rate"
-        )
-    
-    with col3:
-        max_symbols = st.number_input("Max Symbols:", min_value=1, max_value=10, value=5, key="max_symbols")
-    
-    # Limit symbols to prevent overload
-    if len(streaming_symbols) > max_symbols:
-        streaming_symbols = streaming_symbols[:max_symbols]
-        st.warning(f"⚠️ Limited to {max_symbols} symbols to prevent API overload")
-    
-    # Initialize session state for streaming
-    if 'streaming_active' not in st.session_state:
-        st.session_state.streaming_active = False
-    
-    # Live streaming interface
-    if streaming_symbols:
-        col1, col2 = st.columns([1, 1])
+    if not st.session_state.live_watchlist:
+        st.info("👈 Add stocks from the sidebar to start monitoring!")
+        st.markdown("""
+        **Quick Start:**
+        1. Enter a stock symbol in the sidebar (e.g., INFY, WIPRO)
+        2. Click ➕ Add or use Quick Add dropdown
+        3. Click 🔴 Start Live Updates
+        4. Watch real-time prices update automatically!
+        """)
+        
+    else:
+        # Summary row
+        if st.session_state.live_data:
+            total_stocks = len(st.session_state.live_data)
+            gainers = sum(1 for data in st.session_state.live_data.values() if data.get('change', 0) > 0)
+            losers = sum(1 for data in st.session_state.live_data.values() if data.get('change', 0) < 0)
+            
+            col1, col2, col3, col4 = st.columns(4)
+            with col1:
+                st.metric("📊 Total Stocks", total_stocks)
+            with col2:
+                st.metric("🟢 Gainers", gainers)
+            with col3:
+                st.metric("🔴 Losers", losers)
+            with col4:
+                st.metric("Status", "🔴 LIVE" if st.session_state.live_streaming else "⏸️ PAUSED")
+        
+        # Live stock cards
+        st.subheader("💹 Live Stock Prices")
+        
+        # Auto-refresh mechanism
+        if st.session_state.live_streaming:
+            # Create placeholder for auto-updating content
+            placeholder = st.empty()
+            
+            def update_live_data():
+                """Update live data for all watchlist stocks"""
+                for symbol in st.session_state.live_watchlist:
+                    try:
+                        price_data = live_engine.get_live_price(symbol)
+                        if price_data:
+                            st.session_state.live_data[symbol] = price_data
+                    except Exception as e:
+                        print(f"Error updating {symbol}: {e}")
+            
+            # Update data
+            update_live_data()
+            
+            # JavaScript for auto-refresh (alternative approach)
+            st.markdown(f"""
+            <script>
+            setTimeout(function(){{
+                window.location.reload();
+            }}, {refresh_interval * 1000});
+            </script>
+            """, unsafe_allow_html=True)
+        
+        # Display stock cards in a grid
+        cols_per_row = 3
+        rows = [st.session_state.live_watchlist[i:i+cols_per_row] for i in range(0, len(st.session_state.live_watchlist), cols_per_row)]
+        
+        for row_stocks in rows:
+            cols = st.columns(len(row_stocks))
+            
+            for col, stock in zip(cols, row_stocks):
+                with col:
+                    # Create card-like container
+                    with st.container():
+                        if stock in st.session_state.live_data:
+                            data = st.session_state.live_data[stock]
+                            
+                            # Card header
+                            change_emoji = "🟢" if data.get('change', 0) >= 0 else "🔴"
+                            st.markdown(f"### {change_emoji} {stock}")
+                            
+                            # Price info
+                            st.metric(
+                                "Price",
+                                f"₹{data.get('price', 0):.2f}",
+                                f"{data.get('change', 0):+.2f} ({data.get('change_percent', 0):+.2f}%)"
+                            )
+                            
+                            # Additional info
+                            st.caption(f"Volume: {data.get('volume', 0):,}")
+                            st.caption(f"Market: {data.get('market_state', 'Unknown')}")
+                            
+                            # ML prediction if available
+                            try:
+                                if ml_trainer.model_exists(stock, 'next_day'):
+                                    model, scaler = ml_trainer.load_model(stock, 'next_day')
+                                    features, _, _ = data_engine.prepare_training_data(stock, '6mo', 1)
+                                    
+                                    if features is not None and model is not None:
+                                        latest_features = features.iloc[-1:].values
+                                        features_scaled = scaler.transform(latest_features)
+                                        probability = model.predict_proba(features_scaled)[0][1]
+                                        
+                                        if probability >= 0.6:
+                                            st.success(f"🤖 ML: BUY ({probability*100:.1f}%)")
+                                        elif probability <= 0.4:
+                                            st.error(f"🤖 ML: SELL ({probability*100:.1f}%)")
+                                        else:
+                                            st.info(f"🤖 ML: HOLD ({probability*100:.1f}%)")
+                                    else:
+                                        st.caption("🤖 ML: Training...")
+                                else:
+                                    st.caption("🤖 ML: No Model")
+                            except:
+                                st.caption("🤖 ML: Error")
+                            
+                            # Last update time
+                            update_time = data.get('timestamp', datetime.now())
+                            st.caption(f"🕒 {update_time.strftime('%H:%M:%S')}")
+                            
+                        else:
+                            # Loading state
+                            st.markdown(f"### ⏳ {stock}")
+                            st.info("Loading price data...")
+                            
+                            # Try to fetch data
+                            if st.button(f"🔄 Refresh {stock}", key=f"refresh_{stock}"):
+                                with st.spinner(f"Fetching {stock}..."):
+                                    price_data = live_engine.get_live_price(stock)
+                                    if price_data:
+                                        st.session_state.live_data[stock] = price_data
+                                        st.experimental_rerun()
+        
+        # Action buttons
+        st.markdown("---")
+        col1, col2, col3 = st.columns(3)
         
         with col1:
-            if st.button("🔴 Start Live Stream", type="primary", key="start_stream_btn"):
-                st.session_state.streaming_active = True
-                live_engine.refresh_interval = refresh_rate
-                
-                # Create status container
-                status_container = st.empty()
-                status_container.success(f"🔴 Starting live stream for {len(streaming_symbols)} stocks...")
-                
-                # Start streaming
-                live_engine.start_streaming(streaming_symbols)
-                
-        with col2:
-            if st.button("🛑 Stop Stream", key="stop_stream_btn"):
-                if st.session_state.get('streaming_active', False):
-                    live_engine.stop_streaming()
-                    st.session_state.streaming_active = False
-                    st.success("🛑 Live streaming stopped")
-    
-    # Manual price check section - FIXED
-    st.subheader("🔍 Quick Price Check")
-    
-    col1, col2 = st.columns([2, 1])
-    
-    with col1:
-        check_symbol = st.text_input("Check Stock Price:", value="RELIANCE", placeholder="Enter NSE symbol", key="check_symbol")
-    
-    with col2:
-        if st.button("📊 Get Price", key="get_price_btn"):
-            if check_symbol:
-                with st.spinner(f"Fetching data for {check_symbol}..."):
-                    price_data = live_engine.get_live_price(check_symbol)
-                    
-                    if price_data:
-                        # FIXED: Simple display without complex layout
-                        st.success(f"✅ {check_symbol.upper()} Price: ₹{price_data['price']:.2f}")
-                        st.info(f"Change: ₹{price_data['change']:+.2f} ({price_data['change_percent']:+.2f}%)")
-                        st.info(f"Volume: {price_data['volume']:,} | Market: {price_data['market_state']}")
-                        st.caption(f"Last Updated: {price_data['timestamp'].strftime('%H:%M:%S')}")
-                    else:
-                        st.error(f"Unable to fetch data for {check_symbol}")
-    
-    # Bulk price check - FIXED
-    st.subheader("📋 Bulk Price Check")
-    
-    if st.button("📊 Check All Watchlist Prices", key="bulk_price_btn"):
-        if st.session_state.watchlist:
-            with st.spinner("Fetching bulk data..."):
-                bulk_data = live_engine.get_multiple_prices(st.session_state.watchlist)
-                
-                if bulk_data:
-                    # Create summary table
-                    table_data = []
-                    for symbol, data in bulk_data.items():
-                        table_data.append({
-                            'Symbol': symbol,
-                            'Price': f"₹{data['price']:.2f}",
-                            'Change': data['change'],  # Keep as number for styling
-                            'Change %': data['change_percent'],  # Keep as number for styling
-                            'Volume': f"{data['volume']:,}",
-                            'Market': data['market_state']
-                        })
-                    
-                    df = pd.DataFrame(table_data)
-                    
-                    # FIXED: Safe color coding function
-                    def highlight_positive_negative(val):
-                        """Safely color positive/negative values"""
+            if st.button("🔄 Refresh All Prices", key="refresh_all"):
+                with st.spinner("Refreshing all prices..."):
+                    for symbol in st.session_state.live_watchlist:
                         try:
-                            if pd.isna(val):
-                                return ''
-                            
-                            # Convert to float if it's a string with numbers
-                            if isinstance(val, str):
-                                # Extract number from string like "+5.23%" or "-2.14"
-                                import re
-                                numbers = re.findall(r'[-+]?(?:\d*\.\d+|\d+)', val)
-                                if numbers:
-                                    val = float(numbers[0])
-                                else:
-                                    return ''
-                            
-                            if float(val) < 0:
-                                return 'color: red'
-                            elif float(val) > 0:
-                                return 'color: green'
-                        except (ValueError, TypeError):
-                            pass
-                        return ''
-                    
-                    # Apply styling only to numeric columns
-                    styled_df = df.style.applymap(highlight_positive_negative, subset=['Change', 'Change %'])
-                    st.dataframe(styled_df, use_container_width=True)
-                    
-                    # Download option
-                    csv = df.to_csv(index=False)
-                    st.download_button(
-                        "📥 Download Bulk Data",
-                        csv,
-                        file_name=f"bulk_prices_{datetime.now().strftime('%Y%m%d_%H%M')}.csv",
-                        mime="text/csv",
-                        key="download_bulk"
-                    )
-                else:
-                    st.warning("No data retrieved for watchlist stocks")
-        else:
-            st.info("Add stocks to your watchlist first!")
+                            price_data = live_engine.get_live_price(symbol)
+                            if price_data:
+                                st.session_state.live_data[symbol] = price_data
+                        except:
+                            continue
+                    st.success("All prices refreshed!")
+                    st.experimental_rerun()
+        
+        with col2:
+            if st.session_state.live_data:
+                # Export data
+                export_data = []
+                for symbol, data in st.session_state.live_data.items():
+                    export_data.append({
+                        'Symbol': symbol,
+                        'Price': data.get('price', 0),
+                        'Change': data.get('change', 0),
+                        'Change %': data.get('change_percent', 0),
+                        'Volume': data.get('volume', 0),
+                        'Market': data.get('market_state', ''),
+                        'Time': data.get('timestamp', datetime.now()).strftime('%H:%M:%S')
+                    })
+                
+                export_df = pd.DataFrame(export_data)
+                csv = export_df.to_csv(index=False)
+                st.download_button(
+                    "📥 Export Data",
+                    csv,
+                    file_name=f"live_prices_{datetime.now().strftime('%Y%m%d_%H%M')}.csv",
+                    mime="text/csv",
+                    key="export_live"
+                )
+        
+        with col3:
+            if st.button("🗑️ Clear All Data", key="clear_data"):
+                st.session_state.live_data = {}
+                st.info("All data cleared!")
+                st.experimental_rerun()
+    
+    # Help section
+    with st.expander("💡 How to Use This Dashboard"):
+        st.markdown("""
+        **Getting Started:**
+        1. **Add Stocks**: Use the sidebar to add stocks to your watchlist
+        2. **Start Monitoring**: Click "🔴 Start Live Updates" 
+        3. **View Real-time Data**: Prices update automatically based on your refresh interval
+        
+        **Features:**
+        - ➕ **Easy Add/Remove**: Manage your watchlist dynamically
+        - 🔄 **Auto-refresh**: Prices update automatically (15-120 seconds)
+        - 🤖 **ML Predictions**: See AI-powered buy/sell signals
+        - 📊 **Summary Stats**: Track gainers, losers, and overall performance
+        - 📥 **Export Data**: Download current prices as CSV
+        
+        **Tips:**
+        - Keep 5-10 stocks for optimal performance
+        - Use 30-60 second refresh for casual monitoring
+        - Lower refresh rates during market hours for more updates
+        """)
 
 elif page == "📈 Market Analysis":
     st.header("📈 Advanced Market Analysis")
