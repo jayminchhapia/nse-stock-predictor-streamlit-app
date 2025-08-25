@@ -958,8 +958,7 @@ elif page == "🧠 Deep Learning Models":
     
     with col3:
         if st.button("🧹 Clear Models", key="clear_dl_models"):
-            # Note: Add model deletion logic if needed
-            st.info("Model clearing not implemented yet")
+            st.info("Model clearing feature not implemented yet")
     
     # Prediction section
     st.markdown("---")
@@ -1055,8 +1054,9 @@ elif page == "🧠 Deep Learning Models":
     
     comparison_symbols = st.multiselect(
         "Compare models for stocks:",
-        st.session_state.watchlist + ['RELIANCE', 'TCS', 'HDFCBANK'],
-        default=['RELIANCE'] if 'RELIANCE' in st.session_state.watchlist else []
+        st.session_state.watchlist + ['RELIANCE', 'TCS', 'HDFCBANK', 'INFY', 'WIPRO'],
+        default=['RELIANCE'] if 'RELIANCE' in st.session_state.watchlist else [],
+        key="model_comparison_symbols"
     )
     
     if comparison_symbols and st.button("📊 Compare Models", key="compare_models"):
@@ -1069,17 +1069,72 @@ elif page == "🧠 Deep Learning Models":
             rf_exists = ml_trainer.model_exists(symbol, 'next_day')
             row['Random Forest'] = "✅ Available" if rf_exists else "❌ Missing"
             
-            # Check LSTM
+            # Check LSTM - FIXED
             lstm_exists = dl_engine.lstm_model_exists(symbol)
             row['LSTM'] = "✅ Available" if lstm_exists else "❌ Missing"
             
             # Ensemble capability
             row['Ensemble Ready'] = "✅ Yes" if (rf_exists and lstm_exists) else "❌ No"
             
+            # Model file sizes (optional)
+            if lstm_exists:
+                model_info = dl_engine.get_model_info(symbol)
+                if model_info['model_files']:
+                    size_mb = model_info['model_files'][0]['size_mb']
+                    row['LSTM Size'] = f"{size_mb:.1f} MB"
+                else:
+                    row['LSTM Size'] = "N/A"
+            else:
+                row['LSTM Size'] = "N/A"
+            
             comparison_data.append(row)
         
         comparison_df = pd.DataFrame(comparison_data)
         st.dataframe(comparison_df, use_container_width=True)
+        
+        # Summary statistics
+        total_stocks = len(comparison_symbols)
+        rf_available = sum(1 for row in comparison_data if row['Random Forest'] == "✅ Available")
+        lstm_available = sum(1 for row in comparison_data if row['LSTM'] == "✅ Available")
+        ensemble_ready = sum(1 for row in comparison_data if row['Ensemble Ready'] == "✅ Yes")
+        
+        col1, col2, col3, col4 = st.columns(4)
+        
+        with col1:
+            st.metric("Total Stocks", total_stocks)
+        with col2:
+            st.metric("RF Models", rf_available)
+        with col3:
+            st.metric("LSTM Models", lstm_available)
+        with col4:
+            st.metric("Ensemble Ready", ensemble_ready)
+
+    # Show all trained LSTM models
+    st.subheader("🧠 All Trained LSTM Models")
+    
+    all_lstm_models = dl_engine.get_all_trained_models()
+    
+    if all_lstm_models:
+        st.success(f"Found {len(all_lstm_models)} trained LSTM models:")
+        
+        # Display models in a grid
+        cols_per_row = 4
+        rows = [all_lstm_models[i:i+cols_per_row] for i in range(0, len(all_lstm_models), cols_per_row)]
+        
+        for row_models in rows:
+            cols = st.columns(len(row_models))
+            
+            for col, symbol in zip(cols, row_models):
+                with col:
+                    model_info = dl_engine.get_model_info(symbol)
+                    if model_info['model_files']:
+                        created_date = model_info['model_files'][0]['created']
+                        size_mb = model_info['model_files'][0]['size_mb']
+                        st.info(f"**{symbol}**\n\n📅 {created_date}\n\n💾 {size_mb:.1f} MB")
+                    else:
+                        st.info(f"**{symbol}**\n\nModel available")
+    else:
+        st.info("No LSTM models trained yet. Train some models to see them here!")
     
     # Help section
     with st.expander("💡 Deep Learning Guide"):
@@ -1110,6 +1165,12 @@ elif page == "🧠 Deep Learning Models":
         - Models are saved automatically after training
         - No need to retrain unless you want to update with new data
         - Each stock requires its own trained model
+        
+        **🔧 Training Tips:**
+        - **Start with defaults**: 50 epochs, batch size 32
+        - **For volatile stocks**: Increase epochs to 100
+        - **For stable stocks**: 30-50 epochs sufficient
+        - **Retrain monthly**: Keep models updated with latest patterns
         """)
 
 
