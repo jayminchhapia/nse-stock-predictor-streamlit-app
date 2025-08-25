@@ -1,7 +1,7 @@
 import yfinance as yf
 import pandas as pd
 import numpy as np
-from datetime import datetime, timedelta
+from datetime import datetime
 import warnings
 warnings.filterwarnings('ignore')
 
@@ -15,16 +15,16 @@ class StockDataEngine:
     def fetch_stock_data(self, symbol, period='1y', interval='1d'):
         """Fetch comprehensive historical stock data from Yahoo Finance"""
         try:
-            ticker = symbol + ".NS" if not symbol.endswith(".NS") else symbol
+            ticker = symbol if symbol.endswith('.NS') else symbol + '.NS'
             df = yf.download(ticker, period=period, interval=interval, progress=False, auto_adjust=False)
             
             if df.empty:
+                print(f"No data available for {symbol}")
                 return None
             
             df['symbol'] = symbol
             df['fetch_time'] = datetime.now()
             df['daily_return'] = df['Close'].pct_change()
-            
             return df
             
         except Exception as e:
@@ -32,26 +32,27 @@ class StockDataEngine:
             return None
     
     def calculate_advanced_features(self, df):
-        """Calculate 20+ advanced technical indicators"""
+        """Calculate 18+ advanced technical indicators"""
         try:
             features_df = df.copy()
             
-            # === PRICE FEATURES ===
+            # Basic Returns and Volatility
             features_df['returns'] = features_df['Close'].pct_change()
             features_df['log_returns'] = np.log(features_df['Close'] / features_df['Close'].shift(1))
             features_df['volatility_5'] = features_df['returns'].rolling(5).std()
             features_df['volatility_20'] = features_df['returns'].rolling(20).std()
             
-            # === MOVING AVERAGES ===
+            # Moving Averages
             features_df['ma5'] = features_df['Close'].rolling(5).mean()
             features_df['ma20'] = features_df['Close'].rolling(20).mean()
             features_df['ma50'] = features_df['Close'].rolling(50).mean()
             
+            # Price to MA Ratios
             features_df['price_ma5_ratio'] = features_df['Close'] / features_df['ma5']
             features_df['price_ma20_ratio'] = features_df['Close'] / features_df['ma20']
             features_df['price_ma50_ratio'] = features_df['Close'] / features_df['ma50']
             
-            # === RSI ===
+            # RSI (Relative Strength Index)
             delta = features_df['Close'].diff()
             gain = delta.where(delta > 0, 0)
             loss = -delta.where(delta < 0, 0)
@@ -60,42 +61,41 @@ class StockDataEngine:
             rs = avg_gain / avg_loss
             features_df['rsi'] = 100 - (100 / (1 + rs))
             
-            # === MACD ===
+            # MACD (Moving Average Convergence Divergence)
             ema12 = features_df['Close'].ewm(span=12).mean()
             ema26 = features_df['Close'].ewm(span=26).mean()
             features_df['macd'] = ema12 - ema26
             features_df['macd_signal'] = features_df['macd'].ewm(span=9).mean()
             features_df['macd_histogram'] = features_df['macd'] - features_df['macd_signal']
             
-            # === BOLLINGER BANDS ===
-            rolling_mean = features_df['Close'].rolling(20).mean()
+            # Bollinger Bands
             rolling_std = features_df['Close'].rolling(20).std()
-            features_df['bollinger_upper'] = rolling_mean + (rolling_std * 2)
-            features_df['bollinger_lower'] = rolling_mean - (rolling_std * 2)
+            features_df['bollinger_upper'] = features_df['ma20'] + (rolling_std * 2)
+            features_df['bollinger_lower'] = features_df['ma20'] - (rolling_std * 2)
             features_df['bollinger_position'] = (features_df['Close'] - features_df['bollinger_lower']) / (features_df['bollinger_upper'] - features_df['bollinger_lower'])
             
-            # === VOLUME ===
+            # Volume Analysis
             features_df['volume_ma20'] = features_df['Volume'].rolling(20).mean()
             features_df['volume_ratio'] = features_df['Volume'] / features_df['volume_ma20']
             
-            # === MOMENTUM ===
+            # Momentum Indicators
             features_df['momentum_5'] = features_df['Close'] / features_df['Close'].shift(5) - 1
             features_df['momentum_10'] = features_df['Close'] / features_df['Close'].shift(10) - 1
             features_df['momentum_20'] = features_df['Close'] / features_df['Close'].shift(20) - 1
             
-            # === SUPPORT/RESISTANCE ===
+            # Support and Resistance
             features_df['support_20'] = features_df['Low'].rolling(20).min()
             features_df['resistance_20'] = features_df['High'].rolling(20).max()
             features_df['support_distance'] = (features_df['Close'] - features_df['support_20']) / features_df['support_20']
             features_df['resistance_distance'] = (features_df['resistance_20'] - features_df['Close']) / features_df['Close']
             
-            # === SELECT ML FEATURES ===
+            # Select final features for ML
             feature_columns = [
                 'returns', 'log_returns', 'volatility_5', 'volatility_20',
                 'price_ma5_ratio', 'price_ma20_ratio', 'price_ma50_ratio',
                 'rsi', 'macd', 'macd_signal', 'macd_histogram',
-                'momentum_5', 'momentum_10', 'momentum_20',
                 'bollinger_position', 'volume_ratio',
+                'momentum_5', 'momentum_10', 'momentum_20',
                 'support_distance', 'resistance_distance'
             ]
             
@@ -148,3 +148,15 @@ class StockDataEngine:
         except Exception as e:
             print(f"Error preparing training data: {e}")
             return None, None, None
+
+if __name__ == "__main__":
+    # Test the data engine
+    engine = StockDataEngine()
+    features, labels, raw_data = engine.prepare_training_data('RELIANCE', '6mo', 1)
+    if features is not None:
+        print(f"Features shape: {features.shape}")
+        print(f"Labels length: {len(labels)}")
+        print("Sample features:")
+        print(features.head())
+    else:
+        print("Failed to prepare data")
