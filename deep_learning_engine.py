@@ -5,6 +5,7 @@ from tensorflow import keras
 from tensorflow.keras import layers, Sequential
 from sklearn.preprocessing import MinMaxScaler
 from sklearn.metrics import mean_squared_error, mean_absolute_error
+from sklearn.impute import SimpleImputer
 import yfinance as yf
 from typing import Dict, List, Tuple, Optional
 import joblib
@@ -14,7 +15,7 @@ import warnings
 warnings.filterwarnings('ignore')
 
 class DeepLearningEngine:
-    """Advanced Deep Learning Engine for Stock Price Prediction"""
+    """Advanced Deep Learning Engine for Stock Price Prediction - FIXED VERSION"""
     
     def __init__(self, models_dir='dl_models'):
         self.models_dir = models_dir
@@ -26,100 +27,148 @@ class DeepLearningEngine:
         self.sequence_length = 60  # Look back 60 days
         self.features = ['Open', 'High', 'Low', 'Close', 'Volume']
         self.target_column = 'Close'
-        
+    
     def prepare_data(self, symbol: str, period: str = '2y') -> Tuple[np.ndarray, np.ndarray, MinMaxScaler]:
-        """Prepare data for LSTM training"""
+        """Prepare data for LSTM training with robust NaN handling"""
         try:
             # Fetch stock data
             ticker = yf.Ticker(f"{symbol}.NS" if not symbol.endswith('.NS') else symbol)
             data = ticker.history(period=period)
             
-            if data.empty or len(data) < self.sequence_length + 30:
+            if data.empty or len(data) < self.sequence_length + 50:
                 raise ValueError(f"Insufficient data for {symbol}")
+            
+            print(f"📊 Initial data shape: {data.shape}")
             
             # Add technical indicators
             data = self._add_technical_indicators(data)
+            
+            print(f"📈 Data with indicators shape: {data.shape}")
+            
+            # FIXED: Robust NaN handling
+            print("🧹 Cleaning NaN values...")
+            
+            # Forward fill first (carry last known value forward)
+            data = data.fillna(method='ffill')
+            
+            # Backward fill for any remaining NaNs at the beginning
+            data = data.fillna(method='bfill')
+            
+            # Drop any rows that still contain NaN
+            data = data.dropna()
+            
+            print(f"✅ Cleaned data shape: {data.shape}")
+            
+            # Check if we have enough data after cleaning
+            if len(data) < self.sequence_length + 30:
+                raise ValueError(f"Insufficient data after cleaning for {symbol}. Need at least {self.sequence_length + 30}, got {len(data)}")
             
             # Select features for training
             feature_columns = ['Open', 'High', 'Low', 'Close', 'Volume', 
                              'SMA_20', 'EMA_12', 'RSI', 'MACD', 'BB_Upper', 'BB_Lower']
             
-            # Ensure all columns exist
+            # Only use columns that exist
             available_features = [col for col in feature_columns if col in data.columns]
+            
+            print(f"🎯 Selected features: {available_features}")
+            
+            # Extract feature data
             feature_data = data[available_features].values
+            
+            # Final NaN check and imputation if needed
+            if np.isnan(feature_data).any():
+                print("⚠️ Still contains NaN after cleaning - using imputer")
+                imputer = SimpleImputer(strategy='mean')
+                feature_data = imputer.fit_transform(feature_data)
+            
+            print(f"📊 Final feature data shape: {feature_data.shape}")
             
             # Scale the data
             scaler = MinMaxScaler(feature_range=(0, 1))
             scaled_data = scaler.fit_transform(feature_data)
             
+            # Verify no NaN in scaled data
+            if np.isnan(scaled_data).any():
+                raise ValueError("NaN values found in scaled data!")
+            
             # Create sequences
-            X, y = self._create_sequences(scaled_data, data[self.target_column].values, scaler)
+            X, y = self._create_sequences(scaled_data, data['Close'].values)
+            
+            print(f"✅ Created sequences - X shape: {X.shape}, y shape: {y.shape}")
             
             return X, y, scaler
             
         except Exception as e:
-            print(f"Error preparing data for {symbol}: {e}")
+            print(f"❌ Error preparing data for {symbol}: {e}")
+            import traceback
+            traceback.print_exc()
             return None, None, None
     
     def _add_technical_indicators(self, data: pd.DataFrame) -> pd.DataFrame:
-        """Add technical indicators to the dataset"""
+        """Add technical indicators with proper NaN handling"""
         try:
+            # Make a copy to avoid modifying original data
+            df = data.copy()
+            
             # Simple Moving Averages
-            data['SMA_20'] = data['Close'].rolling(window=20).mean()
-            data['SMA_50'] = data['Close'].rolling(window=50).mean()
+            df['SMA_20'] = df['Close'].rolling(window=20, min_periods=1).mean()
+            df['SMA_50'] = df['Close'].rolling(window=50, min_periods=1).mean()
             
             # Exponential Moving Average
-            data['EMA_12'] = data['Close'].ewm(span=12).mean()
-            data['EMA_26'] = data['Close'].ewm(span=26).mean()
+            df['EMA_12'] = df['Close'].ewm(span=12, min_periods=1).mean()
+            df['EMA_26'] = df['Close'].ewm(span=26, min_periods=1).mean()
             
-            # RSI
-            delta = data['Close'].diff()
-            gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
-            loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
-            rs = gain / loss
-            data['RSI'] = 100 - (100 / (1 + rs))
+            # RSI with minimum periods
+            delta = df['Close'].diff()
+            gain = (delta.where(delta > 0, 0)).rolling(window=14, min_periods=1).mean()
+            loss = (-delta.where(delta < 0, 0)).rolling(window=14, min_periods=1).mean()
+            rs = gain / (loss + 1e-8)  # Add small epsilon to prevent division by zero
+            df['RSI'] = 100 - (100 / (1 + rs))
             
             # MACD
-            data['MACD'] = data['EMA_12'] - data['EMA_26']
-            data['MACD_Signal'] = data['MACD'].ewm(span=9).mean()
-            data['MACD_Histogram'] = data['MACD'] - data['MACD_Signal']
+            df['MACD'] = df['EMA_12'] - df['EMA_26']
+            df['MACD_Signal'] = df['MACD'].ewm(span=9, min_periods=1).mean()
+            df['MACD_Histogram'] = df['MACD'] - df['MACD_Signal']
             
             # Bollinger Bands
             bb_window = 20
-            data['BB_Middle'] = data['Close'].rolling(window=bb_window).mean()
-            bb_std = data['Close'].rolling(window=bb_window).std()
-            data['BB_Upper'] = data['BB_Middle'] + (bb_std * 2)
-            data['BB_Lower'] = data['BB_Middle'] - (bb_std * 2)
+            df['BB_Middle'] = df['Close'].rolling(window=bb_window, min_periods=1).mean()
+            bb_std = df['Close'].rolling(window=bb_window, min_periods=1).std()
+            df['BB_Upper'] = df['BB_Middle'] + (bb_std * 2)
+            df['BB_Lower'] = df['BB_Middle'] - (bb_std * 2)
             
             # Volume indicators
-            data['Volume_SMA'] = data['Volume'].rolling(window=20).mean()
-            data['Volume_Ratio'] = data['Volume'] / data['Volume_SMA']
+            df['Volume_SMA'] = df['Volume'].rolling(window=20, min_periods=1).mean()
+            df['Volume_Ratio'] = df['Volume'] / (df['Volume_SMA'] + 1e-8)
             
             # Price momentum
-            data['Price_Change'] = data['Close'].pct_change()
-            data['Volatility'] = data['Price_Change'].rolling(window=20).std()
+            df['Price_Change'] = df['Close'].pct_change()
+            df['Volatility'] = df['Price_Change'].rolling(window=20, min_periods=1).std()
             
-            # Fill NaN values
-            data = data.fillna(method='forward').fillna(method='backward')
+            # Fill any remaining NaN values
+            df = df.fillna(method='ffill').fillna(method='bfill')
             
-            return data
+            # Final safety check - fill with zeros if any NaN remains
+            df = df.fillna(0)
+            
+            return df
             
         except Exception as e:
             print(f"Error adding technical indicators: {e}")
             return data
     
-    def _create_sequences(self, scaled_data: np.ndarray, target_data: np.ndarray, scaler: MinMaxScaler) -> Tuple[np.ndarray, np.ndarray]:
+    def _create_sequences(self, scaled_data: np.ndarray, target_data: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
         """Create sequences for LSTM training"""
         X, y = [], []
         
-        # Find the close price column index in the scaled data
-        close_index = 3  # Assuming Close is the 4th column (0-indexed)
+        # Find the close price column index (should be index 3)
+        close_index = 3
         
         for i in range(self.sequence_length, len(scaled_data)):
             # X: sequence of past data points
             X.append(scaled_data[i-self.sequence_length:i])
             # y: next day's closing price (normalized)
-            y.append(scaled_data[i, close_index])  # Close price column
+            y.append(scaled_data[i, close_index])
         
         return np.array(X), np.array(y)
     
@@ -161,7 +210,7 @@ class DeepLearningEngine:
             # Prepare data
             X, y, scaler = self.prepare_data(symbol)
             if X is None or len(X) < 100:
-                return {'success': False, 'error': 'Insufficient data'}
+                return {'success': False, 'error': 'Insufficient data for training'}
             
             # Split data
             split_index = int(len(X) * 0.8)
@@ -221,6 +270,8 @@ class DeepLearningEngine:
             
         except Exception as e:
             print(f"❌ Error training LSTM model for {symbol}: {e}")
+            import traceback
+            traceback.print_exc()
             return {'success': False, 'error': str(e)}
     
     def load_lstm_model(self, symbol: str) -> Tuple[Optional[Sequential], Optional[MinMaxScaler]]:
@@ -276,8 +327,7 @@ class DeepLearningEngine:
             # Get current price for comparison
             current_price = data['Close'].iloc[-1]
             
-            # The prediction is normalized, so we need to denormalize it
-            # Create a dummy array to inverse transform
+            # Denormalize the prediction
             dummy_array = np.zeros((1, len(available_features)))
             dummy_array[0, 3] = prediction  # Close price is at index 3
             predicted_price = scaler.inverse_transform(dummy_array)[0, 3]
@@ -308,7 +358,7 @@ class DeepLearningEngine:
                 'recommendation': recommendation,
                 'model_type': 'LSTM',
                 'prediction_horizon': f'{days_ahead} day(s)',
-                'confidence': min(abs(price_change_pct) * 10, 100)  # Simple confidence metric
+                'confidence': min(abs(price_change_pct) * 10, 100)
             }
             
         except Exception as e:
@@ -341,6 +391,21 @@ class DeepLearningEngine:
                 })
         
         return model_info
+    
+    def get_all_trained_models(self) -> List[str]:
+        """Get list of all symbols with trained LSTM models"""
+        trained_symbols = []
+        
+        if not os.path.exists(self.models_dir):
+            return trained_symbols
+        
+        for filename in os.listdir(self.models_dir):
+            if filename.endswith('_lstm_model.h5'):
+                symbol = filename.replace('_lstm_model.h5', '')
+                if self.lstm_model_exists(symbol):
+                    trained_symbols.append(symbol)
+        
+        return trained_symbols
 
 # Global instance
 dl_engine = DeepLearningEngine()
