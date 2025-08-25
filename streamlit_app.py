@@ -13,6 +13,9 @@ from model_trainer import MLModelTrainer
 # NEW IMPORTS for Phase 3A
 from live_data_engine import live_engine
 from market_analyzer import market_analyzer
+
+# Phase 3B Deep Learning components
+from deep_learning_engine import dl_engine
 warnings.filterwarnings('ignore')
 
 # Page config
@@ -83,7 +86,7 @@ st.markdown("**Advanced Machine Learning with 18+ Features • 75-85% Accuracy �
 st.sidebar.header("🎯 Navigation")
 page = st.sidebar.selectbox(
     "Select Page:",
-    ["📊 Stock Analysis", "📈 Portfolio Dashboard", "⚙️ Model Management", "📋 Analysis History", "📈 Smart Live Dashboard", "📈 Market Analysis"]
+    ["📊 Stock Analysis", "📈 Portfolio Dashboard", "⚙️ Model Management", "📋 Analysis History", "📈 Smart Live Dashboard", "📈 Market Analysis", "🧠 Deep Learning Models"]
 )
 
 # Main content based on page selection
@@ -865,6 +868,250 @@ elif page == "📈 Market Analysis":
         - **Negative Correlation**: Stocks that tend to move in opposite directions
         - Values closer to +1 or -1 indicate stronger relationships
         """)
+
+elif page == "🧠 Deep Learning Models":
+    st.header("🧠 Deep Learning Stock Prediction")
+    st.caption("🚀 LSTM Neural Networks • 🎯 Enhanced Accuracy • ⚡ Advanced Forecasting")
+    
+    # Model training section
+    st.subheader("🏋️ Model Training")
+    
+    col1, col2, col3 = st.columns([2, 1, 1])
+    
+    with col1:
+        dl_symbol = st.text_input("Select Stock for Deep Learning:", value="RELIANCE", key="dl_symbol")
+    
+    with col2:
+        epochs = st.number_input("Training Epochs:", min_value=10, max_value=200, value=50, step=10)
+    
+    with col3:
+        batch_size = st.selectbox("Batch Size:", [16, 32, 64], index=1)
+    
+    # Check if model exists
+    if dl_symbol:
+        model_exists = dl_engine.lstm_model_exists(dl_symbol)
+        
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            if model_exists:
+                st.success(f"✅ LSTM model exists for {dl_symbol}")
+            else:
+                st.info(f"ℹ️ No LSTM model found for {dl_symbol}")
+        
+        with col2:
+            # Model info
+            if model_exists:
+                model_info = dl_engine.get_model_info(dl_symbol)
+                for model_file in model_info['model_files']:
+                    st.caption(f"📁 {model_file['type']}: {model_file['size_mb']:.1f}MB (Created: {model_file['created']})")
+    
+    # Training controls
+    col1, col2, col3 = st.columns(3)
+    
+    with col1:
+        if st.button("🔄 Train LSTM Model", type="primary", key="train_lstm"):
+            if dl_symbol:
+                with st.spinner(f"Training LSTM model for {dl_symbol}... This may take 2-5 minutes."):
+                    result = dl_engine.train_lstm_model(dl_symbol, epochs=epochs, batch_size=batch_size)
+                    
+                    if result['success']:
+                        st.success("✅ LSTM model trained successfully!")
+                        
+                        # Show metrics
+                        col1, col2, col3 = st.columns(3)
+                        with col1:
+                            st.metric("Train RMSE", f"{result['train_rmse']:.6f}")
+                        with col2:
+                            st.metric("Test RMSE", f"{result['test_rmse']:.6f}")
+                        with col3:
+                            st.metric("Test MAE", f"{result['test_mae']:.6f}")
+                        
+                        st.info(f"💾 Model saved at: {result['model_path']}")
+                    else:
+                        st.error(f"❌ Training failed: {result.get('error', 'Unknown error')}")
+            else:
+                st.warning("Please enter a stock symbol")
+    
+    with col2:
+        if st.button("🎯 Train Ensemble Model", key="train_ensemble"):
+            if dl_symbol:
+                with st.spinner(f"Training ensemble (RF + LSTM) for {dl_symbol}..."):
+                    result = ml_trainer.train_ensemble_model(dl_symbol, use_lstm=True)
+                    
+                    st.subheader("📊 Ensemble Training Results")
+                    
+                    col1, col2 = st.columns(2)
+                    with col1:
+                        if result['rf_success']:
+                            st.success(f"✅ Random Forest: {result['rf_accuracy']:.3f} accuracy")
+                        else:
+                            st.error("❌ Random Forest training failed")
+                    
+                    with col2:
+                        if result['lstm_success']:
+                            st.success(f"✅ LSTM: {result.get('lstm_rmse', 'N/A'):.6f} RMSE")
+                        else:
+                            st.error("❌ LSTM training failed")
+            else:
+                st.warning("Please enter a stock symbol")
+    
+    with col3:
+        if st.button("🧹 Clear Models", key="clear_dl_models"):
+            # Note: Add model deletion logic if needed
+            st.info("Model clearing not implemented yet")
+    
+    # Prediction section
+    st.markdown("---")
+    st.subheader("🔮 Deep Learning Predictions")
+    
+    if dl_symbol and dl_engine.lstm_model_exists(dl_symbol):
+        col1, col2 = st.columns([1, 1])
+        
+        with col1:
+            if st.button("🚀 LSTM Prediction", key="lstm_predict"):
+                with st.spinner("Generating LSTM prediction..."):
+                    prediction = dl_engine.predict_lstm(dl_symbol)
+                    
+                    if prediction['success']:
+                        st.subheader(f"🧠 LSTM Prediction for {dl_symbol}")
+                        
+                        # Metrics
+                        col1, col2, col3 = st.columns(3)
+                        
+                        with col1:
+                            st.metric("Current Price", f"₹{prediction['current_price']:.2f}")
+                        
+                        with col2:
+                            st.metric(
+                                "Predicted Price", 
+                                f"₹{prediction['predicted_price']:.2f}",
+                                f"{prediction['price_change']:+.2f}"
+                            )
+                        
+                        with col3:
+                            st.metric(
+                                "Expected Change",
+                                f"{prediction['price_change_pct']:+.2f}%",
+                                f"Confidence: {prediction['confidence']:.0f}%"
+                            )
+                        
+                        # Recommendation
+                        rec = prediction['recommendation']
+                        if rec in ["STRONG BUY", "BUY"]:
+                            st.success(f"🚀 Recommendation: {rec}")
+                        elif rec in ["STRONG SELL", "SELL"]:
+                            st.error(f"📉 Recommendation: {rec}")
+                        else:
+                            st.info(f"⏸️ Recommendation: {rec}")
+                    
+                    else:
+                        st.error(f"❌ Prediction failed: {prediction.get('error')}")
+        
+        with col2:
+            if st.button("🎯 Ensemble Prediction", key="ensemble_predict"):
+                with st.spinner("Generating ensemble prediction..."):
+                    predictions = ml_trainer.predict_ensemble(dl_symbol)
+                    
+                    if 'error' not in predictions:
+                        st.subheader(f"🎯 Ensemble Prediction for {dl_symbol}")
+                        
+                        # Show individual model predictions
+                        if 'rf' in predictions:
+                            st.write("**🌲 Random Forest:**")
+                            rf_pred = predictions['rf']
+                            st.write(f"• Probability (UP): {rf_pred['probability']*100:.1f}%")
+                            st.write(f"• Recommendation: {rf_pred['recommendation']}")
+                        
+                        if 'lstm' in predictions:
+                            st.write("**🧠 LSTM Neural Network:**")
+                            lstm_pred = predictions['lstm']
+                            st.write(f"• Predicted Price: ₹{lstm_pred['predicted_price']:.2f}")
+                            st.write(f"• Expected Change: {lstm_pred['price_change_pct']:+.2f}%")
+                            st.write(f"• Recommendation: {lstm_pred['recommendation']}")
+                        
+                        if 'ensemble' in predictions:
+                            st.write("**⚡ Ensemble Decision:**")
+                            ens_pred = predictions['ensemble']
+                            
+                            rec = ens_pred['recommendation']
+                            if rec in ["STRONG BUY", "BUY"]:
+                                st.success(f"🚀 **Final Recommendation: {rec}**")
+                            elif rec in ["STRONG SELL", "SELL"]:
+                                st.error(f"📉 **Final Recommendation: {rec}**")
+                            else:
+                                st.info(f"⏸️ **Final Recommendation: {rec}**")
+                            
+                            st.write(f"• Ensemble Confidence: {ens_pred['confidence']:.1f}%")
+                    else:
+                        st.error(f"❌ Ensemble prediction failed: {predictions.get('error')}")
+    
+    else:
+        st.info("👆 Train an LSTM model first to generate predictions")
+    
+    # Model comparison section
+    st.markdown("---")
+    st.subheader("⚖️ Model Comparison")
+    
+    comparison_symbols = st.multiselect(
+        "Compare models for stocks:",
+        st.session_state.watchlist + ['RELIANCE', 'TCS', 'HDFCBANK'],
+        default=['RELIANCE'] if 'RELIANCE' in st.session_state.watchlist else []
+    )
+    
+    if comparison_symbols and st.button("📊 Compare Models", key="compare_models"):
+        comparison_data = []
+        
+        for symbol in comparison_symbols:
+            row = {'Symbol': symbol}
+            
+            # Check Random Forest
+            rf_exists = ml_trainer.model_exists(symbol, 'next_day')
+            row['Random Forest'] = "✅ Available" if rf_exists else "❌ Missing"
+            
+            # Check LSTM
+            lstm_exists = dl_engine.lstm_model_exists(symbol)
+            row['LSTM'] = "✅ Available" if lstm_exists else "❌ Missing"
+            
+            # Ensemble capability
+            row['Ensemble Ready'] = "✅ Yes" if (rf_exists and lstm_exists) else "❌ No"
+            
+            comparison_data.append(row)
+        
+        comparison_df = pd.DataFrame(comparison_data)
+        st.dataframe(comparison_df, use_container_width=True)
+    
+    # Help section
+    with st.expander("💡 Deep Learning Guide"):
+        st.markdown("""
+        **🧠 LSTM Neural Networks:**
+        - **Long Short-Term Memory** networks excel at sequence prediction
+        - **Learns complex patterns** from 60+ days of historical data
+        - **Higher accuracy potential** than traditional ML methods
+        
+        **🎯 Ensemble Models:**
+        - **Combines Random Forest + LSTM** predictions
+        - **Reduces overfitting** and improves reliability
+        - **Best of both worlds**: statistical ML + deep learning
+        
+        **⚡ Training Process:**
+        1. **Data Preparation**: Fetches 2+ years of historical data
+        2. **Feature Engineering**: Adds 10+ technical indicators
+        3. **Sequence Creation**: Creates 60-day lookback windows
+        4. **Model Training**: Trains LSTM with early stopping
+        5. **Validation**: Tests on unseen data for accuracy
+        
+        **📈 Prediction Types:**
+        - **LSTM**: Direct price prediction with confidence
+        - **Random Forest**: Probability-based direction prediction
+        - **Ensemble**: Combined recommendation from both models
+        
+        **💾 Model Persistence:**
+        - Models are saved automatically after training
+        - No need to retrain unless you want to update with new data
+        - Each stock requires its own trained model
+        """)
+
 
 # Sidebar info
 st.sidebar.markdown("---")
