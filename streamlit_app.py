@@ -79,7 +79,7 @@ st.markdown("**Advanced Machine Learning with 18+ Features • 75-85% Accuracy �
 st.sidebar.header("🎯 Navigation")
 page = st.sidebar.selectbox(
     "Select Page:",
-    ["📊 Stock Analysis", "📈 Portfolio Dashboard", "⚙️ Model Management", "📋 Analysis History"]
+    ["📊 Stock Analysis", "📈 Portfolio Dashboard", "⚙️ Model Management", "📋 Analysis History", "📡 Yahoo Live Stream", "📈 Market Analysis"]
 )
 
 # Main content based on page selection
