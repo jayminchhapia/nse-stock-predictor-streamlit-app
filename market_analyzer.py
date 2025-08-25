@@ -6,14 +6,14 @@ from typing import Dict, List
 import streamlit as st
 
 class MarketAnalyzer:
-    """Advanced market analysis using Yahoo Finance data"""
+    """Advanced market analysis using Yahoo Finance data - FIXED VERSION"""
     
     def __init__(self):
         self.cache = {}
         self.cache_duration = 300  # 5 minutes cache
     
     def get_sector_performance(self, symbols: List[str]) -> Dict:
-        """Analyze sector performance for given symbols"""
+        """Analyze sector performance for given symbols - FIXED"""
         try:
             sector_data = {}
             
@@ -44,7 +44,8 @@ class MarketAnalyzer:
             
             # Calculate sector averages
             for sector in sector_data:
-                sector_data[sector]['avg_change'] = np.mean(sector_data[sector]['changes'])
+                changes = sector_data[sector]['changes']
+                sector_data[sector]['avg_change'] = np.mean(changes) if changes else 0
                 sector_data[sector]['stock_count'] = len(sector_data[sector]['stocks'])
             
             return sector_data
@@ -54,7 +55,7 @@ class MarketAnalyzer:
             return {}
     
     def get_top_movers(self, symbols: List[str], limit: int = 5) -> Dict:
-        """Get top gainers and losers"""
+        """Get top gainers and losers - FIXED"""
         try:
             movers_data = []
             
@@ -70,9 +71,9 @@ class MarketAnalyzer:
                         
                         movers_data.append({
                             'symbol': symbol,
-                            'price': current_price,
-                            'change_pct': change_pct,
-                            'volume': hist['Volume'].iloc[-1] if 'Volume' in hist.columns else 0
+                            'price': float(current_price),
+                            'change_pct': float(change_pct),
+                            'volume': int(hist['Volume'].iloc[-1]) if 'Volume' in hist.columns and not pd.isna(hist['Volume'].iloc[-1]) else 0
                         })
                 
                 except Exception as e:
@@ -82,9 +83,14 @@ class MarketAnalyzer:
             # Sort by change percentage
             movers_data.sort(key=lambda x: x['change_pct'], reverse=True)
             
+            # FIXED: Ensure gainers and losers are different
+            gainers = [m for m in movers_data if m['change_pct'] > 0][:limit]
+            losers = [m for m in movers_data if m['change_pct'] < 0][-limit:]
+            losers.reverse()  # Show worst performers first
+            
             return {
-                'top_gainers': movers_data[:limit],
-                'top_losers': movers_data[-limit:],
+                'top_gainers': gainers,
+                'top_losers': losers,
                 'total_analyzed': len(movers_data)
             }
             
@@ -93,7 +99,7 @@ class MarketAnalyzer:
             return {'top_gainers': [], 'top_losers': [], 'total_analyzed': 0}
     
     def get_volatility_analysis(self, symbols: List[str]) -> Dict:
-        """Analyze volatility for given stocks"""
+        """Analyze volatility for given stocks - FIXED"""
         try:
             volatility_data = []
             
@@ -108,13 +114,13 @@ class MarketAnalyzer:
                         
                         # Volatility metrics
                         volatility = daily_returns.std() * np.sqrt(252)  # Annualized
-                        avg_volume = hist['Volume'].mean()
+                        avg_volume = hist['Volume'].mean() if 'Volume' in hist.columns else 0
                         
                         volatility_data.append({
                             'symbol': symbol,
-                            'volatility': volatility * 100,  # As percentage
-                            'avg_volume': avg_volume,
-                            'price_range': (hist['High'].max() - hist['Low'].min()) / hist['Close'].mean() * 100
+                            'volatility': float(volatility * 100),  # As percentage
+                            'avg_volume': float(avg_volume),
+                            'price_range': float((hist['High'].max() - hist['Low'].min()) / hist['Close'].mean() * 100)
                         })
                 
                 except Exception:
@@ -123,10 +129,21 @@ class MarketAnalyzer:
             # Sort by volatility
             volatility_data.sort(key=lambda x: x['volatility'], reverse=True)
             
+            # FIXED: Ensure high and low volatility are truly different
+            if len(volatility_data) >= 2:
+                median_volatility = np.median([v['volatility'] for v in volatility_data])
+                
+                high_vol = [v for v in volatility_data if v['volatility'] > median_volatility][:5]
+                low_vol = [v for v in volatility_data if v['volatility'] <= median_volatility][-5:]
+                low_vol.reverse()  # Show lowest volatility first
+            else:
+                high_vol = volatility_data[:5]
+                low_vol = []
+            
             return {
-                'high_volatility': volatility_data[:5],
-                'low_volatility': volatility_data[-5:],
-                'avg_market_volatility': np.mean([v['volatility'] for v in volatility_data]) if volatility_data else 0
+                'high_volatility': high_vol,
+                'low_volatility': low_vol,
+                'avg_market_volatility': float(np.mean([v['volatility'] for v in volatility_data])) if volatility_data else 0
             }
             
         except Exception as e:
@@ -134,7 +151,7 @@ class MarketAnalyzer:
             return {'high_volatility': [], 'low_volatility': [], 'avg_market_volatility': 0}
     
     def get_correlation_analysis(self, symbols: List[str]) -> pd.DataFrame:
-        """Get correlation matrix for given stocks"""
+        """Get correlation matrix for given stocks - FIXED"""
         try:
             if len(symbols) < 2:
                 return pd.DataFrame()
@@ -148,7 +165,8 @@ class MarketAnalyzer:
                     hist = ticker.history(period='3mo')
                     if len(hist) >= 50:
                         price_data[symbol] = hist['Close']
-                except:
+                except Exception as e:
+                    print(f"Error fetching correlation data for {symbol}: {e}")
                     continue
             
             if len(price_data) < 2:
@@ -156,6 +174,13 @@ class MarketAnalyzer:
             
             # Create DataFrame and calculate correlation
             df = pd.DataFrame(price_data)
+            
+            # Handle missing data
+            df = df.dropna()
+            
+            if df.empty:
+                return pd.DataFrame()
+                
             correlation_matrix = df.corr()
             
             return correlation_matrix
