@@ -443,6 +443,12 @@ elif page == "📈 Smart Live Dashboard":
     if 'live_data' not in st.session_state:
         st.session_state.live_data = {}
     
+    # Market status check
+    market_open = live_engine._is_market_open()
+    market_status = "🟢 OPEN" if market_open else "🔴 CLOSED"
+    
+    st.info(f"📊 **NSE Market Status**: {market_status} | Current Time: {datetime.now().strftime('%H:%M:%S IST')}")
+    
     # === SIDEBAR: WATCHLIST MANAGEMENT ===
     with st.sidebar:
         st.header("📋 Manage Stocks")
@@ -462,7 +468,7 @@ elif page == "📈 Smart Live Dashboard":
                 if symbol and symbol not in st.session_state.live_watchlist:
                     st.session_state.live_watchlist.append(symbol)
                     st.success(f"Added {symbol}!")
-                    st.experimental_rerun()
+                    st.rerun()  # Use st.rerun() instead of experimental_rerun
                 elif symbol in st.session_state.live_watchlist:
                     st.warning("Already in watchlist!")
         
@@ -473,7 +479,7 @@ elif page == "📈 Smart Live Dashboard":
             if quick_add != "Select..." and quick_add not in st.session_state.live_watchlist:
                 st.session_state.live_watchlist.append(quick_add)
                 st.success(f"Added {quick_add}!")
-                st.experimental_rerun()
+                st.rerun()
         
         # Current watchlist with remove options
         st.subheader("📊 Your Stocks")
@@ -494,7 +500,7 @@ elif page == "📈 Smart Live Dashboard":
                         st.session_state.live_watchlist.remove(stock)
                         if stock in st.session_state.live_data:
                             del st.session_state.live_data[stock]
-                        st.experimental_rerun()
+                        st.rerun()
         else:
             st.info("Add stocks to start monitoring!")
         
@@ -508,14 +514,14 @@ elif page == "📈 Smart Live Dashboard":
                 if st.session_state.live_watchlist:
                     st.session_state.live_streaming = True
                     st.success("Live updates started!")
-                    st.experimental_rerun()
+                    st.rerun()
                 else:
                     st.warning("Add stocks first!")
         else:
             if st.button("🛑 Stop Updates", key="stop_live"):
                 st.session_state.live_streaming = False
                 st.info("Live updates stopped")
-                st.experimental_rerun()
+                st.rerun()
     
     # === MAIN AREA: LIVE DASHBOARD ===
     
@@ -526,7 +532,7 @@ elif page == "📈 Smart Live Dashboard":
         1. Enter a stock symbol in the sidebar (e.g., INFY, WIPRO)
         2. Click ➕ Add or use Quick Add dropdown
         3. Click 🔴 Start Live Updates
-        4. Watch real-time prices update automatically!
+        4. Watch prices update automatically!
         """)
         
     else:
@@ -549,33 +555,6 @@ elif page == "📈 Smart Live Dashboard":
         # Live stock cards
         st.subheader("💹 Live Stock Prices")
         
-        # Auto-refresh mechanism
-        if st.session_state.live_streaming:
-            # Create placeholder for auto-updating content
-            placeholder = st.empty()
-            
-            def update_live_data():
-                """Update live data for all watchlist stocks"""
-                for symbol in st.session_state.live_watchlist:
-                    try:
-                        price_data = live_engine.get_live_price(symbol)
-                        if price_data:
-                            st.session_state.live_data[symbol] = price_data
-                    except Exception as e:
-                        print(f"Error updating {symbol}: {e}")
-            
-            # Update data
-            update_live_data()
-            
-            # JavaScript for auto-refresh (alternative approach)
-            st.markdown(f"""
-            <script>
-            setTimeout(function(){{
-                window.location.reload();
-            }}, {refresh_interval * 1000});
-            </script>
-            """, unsafe_allow_html=True)
-        
         # Display stock cards in a grid
         cols_per_row = 3
         rows = [st.session_state.live_watchlist[i:i+cols_per_row] for i in range(0, len(st.session_state.live_watchlist), cols_per_row)]
@@ -587,64 +566,51 @@ elif page == "📈 Smart Live Dashboard":
                 with col:
                     # Create card-like container
                     with st.container():
-                        if stock in st.session_state.live_data:
-                            data = st.session_state.live_data[stock]
-                            
+                        # Fetch fresh data for display
+                        try:
+                            price_data = live_engine.get_live_price(stock)
+                            st.session_state.live_data[stock] = price_data
+                        except Exception as e:
+                            print(f"Error fetching {stock}: {e}")
+                            price_data = None
+                        
+                        if price_data and price_data.get('price', 0) > 0:
                             # Card header
-                            change_emoji = "🟢" if data.get('change', 0) >= 0 else "🔴"
+                            change_emoji = "🟢" if price_data.get('change', 0) >= 0 else "🔴"
                             st.markdown(f"### {change_emoji} {stock}")
                             
                             # Price info
                             st.metric(
                                 "Price",
-                                f"₹{data.get('price', 0):.2f}",
-                                f"{data.get('change', 0):+.2f} ({data.get('change_percent', 0):+.2f}%)"
+                                f"₹{price_data.get('price', 0):.2f}",
+                                f"{price_data.get('change', 0):+.2f} ({price_data.get('change_percent', 0):+.2f}%)"
                             )
                             
-                            # Additional info
-                            st.caption(f"Volume: {data.get('volume', 0):,}")
-                            st.caption(f"Market: {data.get('market_state', 'Unknown')}")
-                            
-                            # ML prediction if available
-                            try:
-                                if ml_trainer.model_exists(stock, 'next_day'):
-                                    model, scaler = ml_trainer.load_model(stock, 'next_day')
-                                    features, _, _ = data_engine.prepare_training_data(stock, '6mo', 1)
-                                    
-                                    if features is not None and model is not None:
-                                        latest_features = features.iloc[-1:].values
-                                        features_scaled = scaler.transform(latest_features)
-                                        probability = model.predict_proba(features_scaled)[0][1]
-                                        
-                                        if probability >= 0.6:
-                                            st.success(f"🤖 ML: BUY ({probability*100:.1f}%)")
-                                        elif probability <= 0.4:
-                                            st.error(f"🤖 ML: SELL ({probability*100:.1f}%)")
-                                        else:
-                                            st.info(f"🤖 ML: HOLD ({probability*100:.1f}%)")
-                                    else:
-                                        st.caption("🤖 ML: Training...")
+                            # Show market status note
+                            if price_data.get('note'):
+                                if 'Market Closed' in price_data['note']:
+                                    st.info(price_data['note'])
+                                elif 'Live Market' in price_data['note']:
+                                    st.success(price_data['note'])
                                 else:
-                                    st.caption("🤖 ML: No Model")
-                            except:
-                                st.caption("🤖 ML: Error")
+                                    st.warning(price_data['note'])
+                            
+                            # Additional info
+                            st.caption(f"Volume: {price_data.get('volume', 0):,}")
+                            st.caption(f"Market: {price_data.get('market_state', 'Unknown')}")
                             
                             # Last update time
-                            update_time = data.get('timestamp', datetime.now())
+                            update_time = price_data.get('timestamp', datetime.now())
                             st.caption(f"🕒 {update_time.strftime('%H:%M:%S')}")
                             
                         else:
-                            # Loading state
-                            st.markdown(f"### ⏳ {stock}")
-                            st.info("Loading price data...")
+                            # Error state
+                            st.markdown(f"### ❌ {stock}")
+                            st.error("Unable to fetch data")
                             
-                            # Try to fetch data
-                            if st.button(f"🔄 Refresh {stock}", key=f"refresh_{stock}"):
-                                with st.spinner(f"Fetching {stock}..."):
-                                    price_data = live_engine.get_live_price(stock)
-                                    if price_data:
-                                        st.session_state.live_data[stock] = price_data
-                                        st.experimental_rerun()
+                            # Manual refresh button
+                            if st.button(f"🔄 Retry {stock}", key=f"retry_{stock}"):
+                                st.rerun()
         
         # Action buttons
         st.markdown("---")
@@ -661,7 +627,7 @@ elif page == "📈 Smart Live Dashboard":
                         except:
                             continue
                     st.success("All prices refreshed!")
-                    st.experimental_rerun()
+                    st.rerun()
         
         with col2:
             if st.session_state.live_data:
@@ -692,27 +658,27 @@ elif page == "📈 Smart Live Dashboard":
             if st.button("🗑️ Clear All Data", key="clear_data"):
                 st.session_state.live_data = {}
                 st.info("All data cleared!")
-                st.experimental_rerun()
+                st.rerun()
     
     # Help section
     with st.expander("💡 How to Use This Dashboard"):
         st.markdown("""
         **Getting Started:**
         1. **Add Stocks**: Use the sidebar to add stocks to your watchlist
-        2. **Start Monitoring**: Click "🔴 Start Live Updates" 
-        3. **View Real-time Data**: Prices update automatically based on your refresh interval
+        2. **View Live Data**: Prices fetch automatically when you load the page
+        3. **Market Hours**: Live data during market hours, last close when closed
         
         **Features:**
         - ➕ **Easy Add/Remove**: Manage your watchlist dynamically
-        - 🔄 **Auto-refresh**: Prices update automatically (15-120 seconds)
-        - 🤖 **ML Predictions**: See AI-powered buy/sell signals
-        - 📊 **Summary Stats**: Track gainers, losers, and overall performance
+        - 🕐 **Market Hours Detection**: Shows appropriate data based on market status
+        - 📊 **Clean Cards Layout**: Each stock displayed in its own card
         - 📥 **Export Data**: Download current prices as CSV
+        - 🔄 **Manual Refresh**: Update all prices with one click
         
-        **Tips:**
-        - Keep 5-10 stocks for optimal performance
-        - Use 30-60 second refresh for casual monitoring
-        - Lower refresh rates during market hours for more updates
+        **Market Hours:**
+        - **NSE Trading**: Monday-Friday, 9:15 AM - 3:30 PM IST
+        - **Live Data**: During market hours (~15 min delay)
+        - **Last Close**: When market is closed or weekends
         """)
 
 elif page == "📈 Market Analysis":
