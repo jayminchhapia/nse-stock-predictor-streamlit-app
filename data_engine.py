@@ -1,197 +1,186 @@
 import yfinance as yf
 import pandas as pd
 import numpy as np
-from datetime import datetime, timedelta
-import warnings
-import streamlit as st
+from datetime import datetime
 import time
+import warnings
 warnings.filterwarnings('ignore')
 
 class StockDataEngine:
-    """Enhanced Stock Data Engine with Robust Error Handling"""
+    """Fixed Stock Data Engine - Handles MultiIndex Issues"""
     
     def __init__(self):
         self.data_cache = {}
-        self.feature_cache = {}
     
-    def fetch_stock_data_robust(self, symbol, period='1y', interval='1d', max_retries=3):
-        """Robust data fetching with multiple fallback strategies"""
+    def fetch_stock_data(self, symbol, period='6mo', interval='1d', max_retries=2):
+        """Fixed data fetching with proper column handling"""
         
-        # Try different ticker formats
-        ticker_variants = [
-            f"{symbol}.NS",  # NSE format
-            f"{symbol}.BO",  # BSE format  
-            symbol,          # Direct symbol
-        ]
+        ticker_variants = [f"{symbol}.NS", f"{symbol}.BO", symbol]
         
         for attempt in range(max_retries):
             for ticker in ticker_variants:
                 try:
-                    st.info(f"🔍 Attempt {attempt + 1}: Fetching {ticker} (period: {period})")
+                    print(f"🔍 Attempt {attempt + 1}: Fetching {ticker} (period: {period})")
                     
-                    # Try with different parameters
-                    df = yf.download(
-                        ticker, 
-                        period=period, 
-                        interval=interval, 
-                        progress=False,
-                        auto_adjust=False,
-                        timeout=30
-                    )
+                    df = yf.download(ticker, period=period, interval=interval, progress=False, timeout=20)
                     
-                    if not df.empty and len(df) >= 10:  # Need at least 10 data points
-                        st.success(f"✅ Successfully fetched {len(df)} rows for {ticker}")
+                    if not df.empty and len(df) >= 10:
+                        print(f"✅ Successfully fetched {len(df)} rows for {ticker}")
                         
-                        # Add metadata
+                        # FIX: Handle MultiIndex columns from yfinance
+                        if isinstance(df.columns, pd.MultiIndex):
+                            # Flatten MultiIndex columns by taking the first level
+                            df.columns = [col[0] if isinstance(col, tuple) else col for col in df.columns]
+                        
+                        # Ensure we have the required columns
+                        required_cols = ['Open', 'High', 'Low', 'Close', 'Volume']
+                        missing_cols = [col for col in required_cols if col not in df.columns]
+                        if missing_cols:
+                            print(f"⚠️ Missing columns {missing_cols}, trying next ticker...")
+                            continue
+                        
+                        # Add symbol column
                         df['symbol'] = symbol
-                        df['fetch_time'] = datetime.now()
-                        df['daily_return'] = df['Close'].pct_change()
                         
-                        # Cache successful fetch
-                        self.data_cache[f"{symbol}_{period}"] = df.copy()
-                        
+                        print(f"📊 Columns: {list(df.columns)}")
                         return df
                     else:
-                        st.warning(f"⚠️ Empty data for {ticker}, trying next variant...")
+                        print(f"⚠️ Empty data for {ticker}")
                         
                 except Exception as e:
-                    st.warning(f"❌ Error with {ticker}: {str(e)[:100]}")
-                    continue
+                    print(f"❌ Error with {ticker}: {str(e)[:50]}")
             
             if attempt < max_retries - 1:
-                st.info(f"⏳ Waiting 2 seconds before retry {attempt + 2}...")
-                time.sleep(2)
+                time.sleep(1)
         
-        # If all attempts fail, try fallback periods
-        st.warning(f"🔄 All standard attempts failed. Trying fallback periods...")
-        
-        fallback_periods = ['6mo', '3mo', '1mo', '5d']
-        
-        for fallback_period in fallback_periods:
-            if fallback_period != period:  # Don't repeat same period
-                try:
-                    ticker = f"{symbol}.NS"  # Use most common format
-                    st.info(f"🔄 Fallback: Trying {ticker} with {fallback_period} period")
+        # Try fallback periods
+        for fallback in ['3mo', '1mo']:
+            try:
+                print(f"🔄 Fallback: {symbol}.NS with {fallback}")
+                df = yf.download(f"{symbol}.NS", period=fallback, progress=False, timeout=20)
+                if not df.empty and len(df) >= 5:
+                    # FIX: Handle MultiIndex columns
+                    if isinstance(df.columns, pd.MultiIndex):
+                        df.columns = [col[0] if isinstance(col, tuple) else col for col in df.columns]
                     
-                    df = yf.download(
-                        ticker, 
-                        period=fallback_period, 
-                        interval=interval, 
-                        progress=False,
-                        timeout=30
-                    )
-                    
-                    if not df.empty and len(df) >= 5:  # Lower threshold for fallback
-                        st.success(f"✅ Fallback successful: {len(df)} rows for {ticker}")
-                        
-                        df['symbol'] = symbol
-                        df['fetch_time'] = datetime.now()
-                        df['daily_return'] = df['Close'].pct_change()
-                        
-                        return df
-                        
-                except Exception as e:
-                    st.warning(f"❌ Fallback {fallback_period} failed: {str(e)[:50]}")
-                    continue
+                    print(f"✅ Fallback success: {len(df)} rows")
+                    df['symbol'] = symbol
+                    return df
+            except:
+                continue
         
-        # Final fallback with sample data (for demo purposes)
-        st.error(f"❌ All data fetching attempts failed for {symbol}")
-        st.info("💡 This might be due to:")
-        st.info("   • Yahoo Finance API rate limits")
-        st.info("   • Network restrictions on cloud deployment")  
-        st.info("   • Market closure (weekends/holidays)")
-        st.info("   • Invalid stock symbol")
-        
+        print(f"❌ Failed to fetch data for {symbol}")
         return None
     
-    def fetch_stock_data(self, symbol, period='1y', interval='1d'):
-        """Main fetch method with enhanced error handling"""
-        return self.fetch_stock_data_robust(symbol, period, interval)
-    
     def calculate_advanced_features(self, df):
-        """Calculate advanced features with error handling"""
+        """Fixed feature calculation ensuring Series operations"""
         try:
             if df is None or df.empty:
-                st.error("Cannot calculate features: DataFrame is empty")
+                print("Cannot calculate features: DataFrame is empty")
                 return None, None
                 
-            st.info(f"🔧 Computing features for {len(df)} data points...")
+            print(f"🔧 Computing features for {len(df)} data points...")
             
+            # Work on copy and ensure proper column access
             features_df = df.copy()
             
-            # Ensure minimum data points
-            if len(features_df) < 20:
-                st.warning(f"⚠️ Limited data ({len(features_df)} points). Features may be less reliable.")
+            # Verify essential columns exist
+            required_columns = ['Close', 'Volume', 'High', 'Low', 'Open']
+            missing_columns = [col for col in required_columns if col not in features_df.columns]
+            if missing_columns:
+                print(f"❌ Missing required columns: {missing_columns}")
+                return None, None
             
-            # Basic Returns and Volatility
-            features_df['returns'] = features_df['Close'].pct_change()
-            features_df['log_returns'] = np.log(features_df['Close'] / features_df['Close'].shift(1))
-            features_df['volatility_5'] = features_df['returns'].rolling(min(5, len(features_df)//4)).std()
-            features_df['volatility_20'] = features_df['returns'].rolling(min(20, len(features_df)//2)).std()
+            print("✅ All required columns present")
             
-            # Moving Averages (adapt to data size)
-            ma5_window = min(5, len(features_df)//4)
-            ma20_window = min(20, len(features_df)//2)
-            ma50_window = min(50, len(features_df)*3//4)
+            # FIX: Ensure all operations work on Series (single columns)
+            close_series = features_df['Close']
+            volume_series = features_df['Volume']
+            high_series = features_df['High']
+            low_series = features_df['Low']
+            open_series = features_df['Open']
             
-            features_df['ma5'] = features_df['Close'].rolling(ma5_window).mean()
-            features_df['ma20'] = features_df['Close'].rolling(ma20_window).mean()
-            features_df['ma50'] = features_df['Close'].rolling(ma50_window).mean()
+            # Verify these are Series, not DataFrames
+            if not isinstance(close_series, pd.Series):
+                print(f"❌ Close is not Series: {type(close_series)}")
+                return None, None
             
-            # Price to MA Ratios
-            features_df['price_ma5_ratio'] = features_df['Close'] / features_df['ma5']
-            features_df['price_ma20_ratio'] = features_df['Close'] / features_df['ma20']
-            features_df['price_ma50_ratio'] = features_df['Close'] / features_df['ma50']
+            print("✅ Column types verified as Series")
             
-            # RSI (adapt window size)
-            rsi_window = min(14, len(features_df)//3)
-            delta = features_df['Close'].diff()
+            # 1. Basic returns - Direct Series operations
+            features_df['returns'] = close_series.pct_change()
+            features_df['log_returns'] = np.log(close_series / close_series.shift(1))
+            
+            # 2. Volatility
+            returns_series = features_df['returns']
+            features_df['volatility_5'] = returns_series.rolling(5).std()
+            features_df['volatility_20'] = returns_series.rolling(20).std()
+            
+            # 3. Moving averages
+            print("  📊 Calculating moving averages...")
+            features_df['ma5'] = close_series.rolling(5).mean()
+            features_df['ma20'] = close_series.rolling(20).mean()
+            features_df['ma50'] = close_series.rolling(50).mean()
+            
+            # 4. Price ratios - Direct Series division
+            print("  📊 Calculating price ratios...")
+            ma5_series = features_df['ma5']
+            ma20_series = features_df['ma20']
+            ma50_series = features_df['ma50']
+            
+            features_df['price_ma5_ratio'] = close_series / ma5_series
+            features_df['price_ma20_ratio'] = close_series / ma20_series
+            features_df['price_ma50_ratio'] = close_series / ma50_series
+            
+            # 5. RSI
+            print("  📊 Calculating RSI...")
+            delta = close_series.diff()
             gain = delta.where(delta > 0, 0)
             loss = -delta.where(delta < 0, 0)
-            avg_gain = gain.rolling(rsi_window).mean()
-            avg_loss = loss.rolling(rsi_window).mean()
+            avg_gain = gain.rolling(14).mean()
+            avg_loss = loss.rolling(14).mean()
             rs = avg_gain / avg_loss
             features_df['rsi'] = 100 - (100 / (1 + rs))
             
-            # MACD
-            ema12_span = min(12, len(features_df)//4)
-            ema26_span = min(26, len(features_df)//2)
-            ema12 = features_df['Close'].ewm(span=ema12_span).mean()
-            ema26 = features_df['Close'].ewm(span=ema26_span).mean()
-            features_df['macd'] = ema12 - ema26
-            features_df['macd_signal'] = features_df['macd'].ewm(span=min(9, len(features_df)//5)).mean()
+            # 6. MACD
+            print("  📊 Calculating MACD...")
+            ema12 = close_series.ewm(span=12).mean()
+            ema26 = close_series.ewm(span=26).mean()
+            macd = ema12 - ema26
+            features_df['macd'] = macd
+            features_df['macd_signal'] = macd.ewm(span=9).mean()
             features_df['macd_histogram'] = features_df['macd'] - features_df['macd_signal']
             
-            # Bollinger Bands
-            bb_window = min(20, len(features_df)//2)
-            rolling_std = features_df['Close'].rolling(bb_window).std()
-            features_df['bollinger_upper'] = features_df['ma20'] + (rolling_std * 2)
-            features_df['bollinger_lower'] = features_df['ma20'] - (rolling_std * 2)
-            features_df['bollinger_position'] = (features_df['Close'] - features_df['bollinger_lower']) / (features_df['bollinger_upper'] - features_df['bollinger_lower'])
+            # 7. Bollinger Bands
+            print("  📊 Calculating Bollinger Bands...")
+            rolling_std = close_series.rolling(20).std()
+            bollinger_upper = ma20_series + (rolling_std * 2)
+            bollinger_lower = ma20_series - (rolling_std * 2)
+            features_df['bollinger_position'] = (close_series - bollinger_lower) / (bollinger_upper - bollinger_lower)
             
-            # Volume Analysis
-            vol_window = min(20, len(features_df)//2)
-            features_df['volume_ma20'] = features_df['Volume'].rolling(vol_window).mean()
-            features_df['volume_ratio'] = features_df['Volume'] / features_df['volume_ma20']
+            # 8. Volume
+            print("  📊 Calculating volume features...")
+            volume_ma20 = volume_series.rolling(20).mean()
+            features_df['volume_ma20'] = volume_ma20
+            features_df['volume_ratio'] = volume_series / volume_ma20
             
-            # Momentum Indicators
-            mom5_window = min(5, len(features_df)//4)
-            mom10_window = min(10, len(features_df)//3)
-            mom20_window = min(20, len(features_df)//2)
+            # 9. Momentum
+            print("  📊 Calculating momentum...")
+            features_df['momentum_5'] = close_series / close_series.shift(5) - 1
+            features_df['momentum_10'] = close_series / close_series.shift(10) - 1
+            features_df['momentum_20'] = close_series / close_series.shift(20) - 1
             
-            features_df['momentum_5'] = features_df['Close'] / features_df['Close'].shift(mom5_window) - 1
-            features_df['momentum_10'] = features_df['Close'] / features_df['Close'].shift(mom10_window) - 1
-            features_df['momentum_20'] = features_df['Close'] / features_df['Close'].shift(mom20_window) - 1
+            # 10. Support/Resistance
+            print("  📊 Calculating support/resistance...")
+            support_20 = low_series.rolling(20).min()
+            resistance_20 = high_series.rolling(20).max()
+            features_df['support_20'] = support_20
+            features_df['resistance_20'] = resistance_20
+            features_df['support_distance'] = (close_series - support_20) / support_20
+            features_df['resistance_distance'] = (resistance_20 - close_series) / close_series
             
-            # Support and Resistance
-            sr_window = min(20, len(features_df)//2)
-            features_df['support_20'] = features_df['Low'].rolling(sr_window).min()
-            features_df['resistance_20'] = features_df['High'].rolling(sr_window).max()
-            features_df['support_distance'] = (features_df['Close'] - features_df['support_20']) / features_df['support_20']
-            features_df['resistance_distance'] = (features_df['resistance_20'] - features_df['Close']) / features_df['Close']
-            
-            # Select final features for ML
-            feature_columns = [
+            # Select final ML features
+            ml_feature_columns = [
                 'returns', 'log_returns', 'volatility_5', 'volatility_20',
                 'price_ma5_ratio', 'price_ma20_ratio', 'price_ma50_ratio',
                 'rsi', 'macd', 'macd_signal', 'macd_histogram',
@@ -200,95 +189,96 @@ class StockDataEngine:
                 'support_distance', 'resistance_distance'
             ]
             
-            # Filter out columns that might not exist due to insufficient data
-            available_columns = [col for col in feature_columns if col in features_df.columns]
+            # Create clean feature DataFrame
+            available_features = [col for col in ml_feature_columns if col in features_df.columns]
+            print(f"  📊 Available features: {len(available_features)}/{len(ml_feature_columns)}")
             
-            ml_features = features_df[available_columns].copy()
+            if len(available_features) == 0:
+                print("❌ No features available")
+                return None, None
+            
+            ml_features = features_df[available_features].copy()
+            
+            # Remove invalid values
+            ml_features = ml_features.replace([np.inf, -np.inf], np.nan)
             ml_features = ml_features.dropna()
             
             if len(ml_features) == 0:
-                st.error("❌ No valid feature rows after cleaning. Insufficient data.")
+                print("❌ No valid features after cleaning")
                 return None, None
             
-            st.success(f"✅ Generated {len(available_columns)} features for {len(ml_features)} data points")
-            
+            print(f"✅ Generated {len(available_features)} features for {len(ml_features)} data points")
             return ml_features, features_df
             
         except Exception as e:
-            st.error(f"❌ Error calculating features: {str(e)}")
+            print(f"❌ Feature calculation error: {str(e)}")
+            print(f"❌ Error type: {type(e).__name__}")
+            import traceback
+            print("❌ Traceback:", traceback.format_exc()[-300:])
             return None, None
     
     def generate_labels(self, df, prediction_horizon=1):
-        """Generate labels with error handling"""
+        """Generate binary labels for price direction"""
         try:
-            if df is None or df.empty:
-                return None
-                
-            future_price = df['Close'].shift(-prediction_horizon)
-            current_price = df['Close']
+            close_series = df['Close']
+            future_price = close_series.shift(-prediction_horizon)
+            current_price = close_series
             labels = (future_price > current_price).astype(int)
             labels_clean = labels.dropna()
             
-            if len(labels_clean) == 0:
-                st.error("❌ No valid labels generated")
+            if len(labels_clean) > 0:
+                print(f"🎯 Generated {len(labels_clean)} labels (UP: {labels_clean.sum()}, DOWN: {len(labels_clean)-labels_clean.sum()})")
+                return labels_clean
+            else:
+                print("❌ No valid labels generated")
                 return None
                 
-            st.info(f"🎯 Generated {len(labels_clean)} labels (UP: {labels_clean.sum()}, DOWN: {len(labels_clean)-labels_clean.sum()})")
-            return labels_clean
-            
         except Exception as e:
-            st.error(f"❌ Error generating labels: {str(e)}")
+            print(f"❌ Label generation error: {str(e)}")
             return None
     
-    def prepare_training_data(self, symbol, period='1y', prediction_horizon=1):
-        """Enhanced training data preparation with comprehensive error handling"""
+    def prepare_training_data(self, symbol, period='6mo', prediction_horizon=1):
+        """Main pipeline for training data preparation"""
         try:
-            st.info(f"🔄 Preparing training data for {symbol}...")
+            print(f"🔄 Preparing training data for {symbol}...")
             
-            # Step 1: Fetch data
+            # Fetch data
             raw_data = self.fetch_stock_data(symbol, period=period)
             if raw_data is None:
-                st.error(f"❌ Could not fetch data for {symbol}")
                 return None, None, None
             
-            # Step 2: Calculate features
+            # Calculate features
             features, processed_data = self.calculate_advanced_features(raw_data)
             if features is None:
-                st.error(f"❌ Could not calculate features for {symbol}")
                 return None, None, None
             
-            # Step 3: Generate labels
+            # Generate labels
             labels = self.generate_labels(raw_data, prediction_horizon)
             if labels is None:
-                st.error(f"❌ Could not generate labels for {symbol}")
                 return None, None, None
             
-            # Step 4: Align features and labels
+            # Align data
             common_index = features.index.intersection(labels.index)
-            
             if len(common_index) == 0:
-                st.error(f"❌ No common timestamps between features and labels for {symbol}")
+                print("❌ No common timestamps")
                 return None, None, None
             
             features_aligned = features.loc[common_index]
             labels_aligned = labels.loc[common_index]
             
-            st.success(f"✅ Training data ready: {len(features_aligned)} samples with {len(features.columns)} features")
-            
+            print(f"✅ Training data ready: {len(features_aligned)} samples with {len(features.columns)} features")
             return features_aligned, labels_aligned, raw_data
             
         except Exception as e:
-            st.error(f"❌ Error preparing training data for {symbol}: {str(e)}")
+            print(f"❌ Preparation error: {str(e)}")
             return None, None, None
 
 if __name__ == "__main__":
-    # Test the enhanced data engine
     engine = StockDataEngine()
-    features, labels, raw_data = engine.prepare_training_data('RELIANCE', '6mo', 1)
+    features, labels, data = engine.prepare_training_data('RELIANCE', '6mo', 1)
     if features is not None:
-        print(f"Features shape: {features.shape}")
-        print(f"Labels length: {len(labels)}")
-        print("Sample features:")
+        print(f"Success! Features: {features.shape}, Labels: {len(labels)}")
+        print("\nFirst few features:")
         print(features.head())
     else:
         print("Failed to prepare data")
