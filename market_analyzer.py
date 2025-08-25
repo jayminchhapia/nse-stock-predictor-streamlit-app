@@ -2,18 +2,18 @@ import pandas as pd
 import numpy as np
 from datetime import datetime, timedelta
 import yfinance as yf
-from typing import Dict, List
+from typing import Dict, List, Tuple
 import streamlit as st
 
 class MarketAnalyzer:
-    """Advanced market analysis using Yahoo Finance data - FIXED VERSION"""
+    """Advanced market analysis with proper data separation - FIXED VERSION"""
     
     def __init__(self):
         self.cache = {}
         self.cache_duration = 300  # 5 minutes cache
     
     def get_sector_performance(self, symbols: List[str]) -> Dict:
-        """Analyze sector performance for given symbols - FIXED"""
+        """Analyze sector performance for given symbols"""
         try:
             sector_data = {}
             
@@ -55,9 +55,11 @@ class MarketAnalyzer:
             return {}
     
     def get_top_movers(self, symbols: List[str], limit: int = 5) -> Dict:
-        """Get top gainers and losers - FIXED"""
+        """Get top gainers and losers - FIXED to ensure distinct lists"""
         try:
-            movers_data = []
+            gainers_list = []
+            losers_list = []
+            all_data = []
             
             for symbol in symbols:
                 try:
@@ -65,33 +67,40 @@ class MarketAnalyzer:
                     hist = ticker.history(period='2d')
                     
                     if len(hist) >= 2:
-                        current_price = hist['Close'].iloc[-1]
-                        prev_close = hist['Close'].iloc[-2]
+                        current_price = float(hist['Close'].iloc[-1])
+                        prev_close = float(hist['Close'].iloc[-2])
                         change_pct = ((current_price - prev_close) / prev_close) * 100
                         
-                        movers_data.append({
+                        stock_data = {
                             'symbol': symbol,
-                            'price': float(current_price),
-                            'change_pct': float(change_pct),
+                            'price': current_price,
+                            'change_pct': change_pct,
                             'volume': int(hist['Volume'].iloc[-1]) if 'Volume' in hist.columns and not pd.isna(hist['Volume'].iloc[-1]) else 0
-                        })
+                        }
+                        
+                        all_data.append(stock_data)
+                        
+                        # FIXED: Separate into distinct lists based on performance
+                        if change_pct > 0:
+                            gainers_list.append(stock_data)
+                        elif change_pct < 0:
+                            losers_list.append(stock_data)
                 
                 except Exception as e:
                     print(f"Error processing {symbol}: {e}")
                     continue
             
-            # Sort by change percentage
-            movers_data.sort(key=lambda x: x['change_pct'], reverse=True)
+            # FIXED: Sort and limit each list separately
+            top_gainers = sorted(gainers_list, key=lambda x: x['change_pct'], reverse=True)[:limit]
+            top_losers = sorted(losers_list, key=lambda x: x['change_pct'], reverse=False)[:limit]  # Worst performers first
             
-            # FIXED: Ensure gainers and losers are different
-            gainers = [m for m in movers_data if m['change_pct'] > 0][:limit]
-            losers = [m for m in movers_data if m['change_pct'] < 0][-limit:]
-            losers.reverse()  # Show worst performers first
+            print(f"DEBUG: Found {len(gainers_list)} gainers, {len(losers_list)} losers")
+            print(f"DEBUG: Returning {len(top_gainers)} top gainers, {len(top_losers)} top losers")
             
             return {
-                'top_gainers': gainers,
-                'top_losers': losers,
-                'total_analyzed': len(movers_data)
+                'top_gainers': top_gainers,
+                'top_losers': top_losers,
+                'total_analyzed': len(all_data)
             }
             
         except Exception as e:
@@ -99,7 +108,7 @@ class MarketAnalyzer:
             return {'top_gainers': [], 'top_losers': [], 'total_analyzed': 0}
     
     def get_volatility_analysis(self, symbols: List[str]) -> Dict:
-        """Analyze volatility for given stocks - FIXED"""
+        """Analyze volatility - FIXED to ensure distinct high/low lists"""
         try:
             volatility_data = []
             
@@ -126,24 +135,31 @@ class MarketAnalyzer:
                 except Exception:
                     continue
             
+            if not volatility_data:
+                return {'high_volatility': [], 'low_volatility': [], 'avg_market_volatility': 0}
+            
             # Sort by volatility
             volatility_data.sort(key=lambda x: x['volatility'], reverse=True)
             
-            # FIXED: Ensure high and low volatility are truly different
-            if len(volatility_data) >= 2:
-                median_volatility = np.median([v['volatility'] for v in volatility_data])
-                
-                high_vol = [v for v in volatility_data if v['volatility'] > median_volatility][:5]
-                low_vol = [v for v in volatility_data if v['volatility'] <= median_volatility][-5:]
-                low_vol.reverse()  # Show lowest volatility first
-            else:
-                high_vol = volatility_data[:5]
-                low_vol = []
+            # FIXED: Use threshold-based separation to ensure distinct lists
+            volatility_values = [v['volatility'] for v in volatility_data]
+            median_volatility = np.median(volatility_values)
+            
+            # Split based on median threshold
+            high_volatility = [v for v in volatility_data if v['volatility'] > median_volatility]
+            low_volatility = [v for v in volatility_data if v['volatility'] <= median_volatility]
+            
+            # Take top 5 from each category
+            high_vol_top = high_volatility[:5]
+            low_vol_top = sorted(low_volatility, key=lambda x: x['volatility'])[:5]
+            
+            print(f"DEBUG: Median volatility: {median_volatility:.2f}%")
+            print(f"DEBUG: High vol stocks: {len(high_volatility)}, Low vol stocks: {len(low_volatility)}")
             
             return {
-                'high_volatility': high_vol,
-                'low_volatility': low_vol,
-                'avg_market_volatility': float(np.mean([v['volatility'] for v in volatility_data])) if volatility_data else 0
+                'high_volatility': high_vol_top,
+                'low_volatility': low_vol_top,
+                'avg_market_volatility': float(np.mean(volatility_values))
             }
             
         except Exception as e:
@@ -151,7 +167,7 @@ class MarketAnalyzer:
             return {'high_volatility': [], 'low_volatility': [], 'avg_market_volatility': 0}
     
     def get_correlation_analysis(self, symbols: List[str]) -> pd.DataFrame:
-        """Get correlation matrix for given stocks - FIXED"""
+        """Get correlation matrix - FIXED to return proper correlation data"""
         try:
             if len(symbols) < 2:
                 return pd.DataFrame()
@@ -188,6 +204,45 @@ class MarketAnalyzer:
         except Exception as e:
             print(f"Correlation analysis error: {e}")
             return pd.DataFrame()
+    
+    def get_correlation_insights(self, correlation_matrix: pd.DataFrame) -> Tuple[List, List]:
+        """Extract positive and negative correlation insights - NEW METHOD"""
+        try:
+            if correlation_matrix.empty:
+                return [], []
+            
+            positive_correlations = []
+            negative_correlations = []
+            
+            # Extract correlation pairs
+            for i in range(len(correlation_matrix.columns)):
+                for j in range(i+1, len(correlation_matrix.columns)):
+                    stock1 = correlation_matrix.columns[i]
+                    stock2 = correlation_matrix.columns[j]
+                    corr_value = correlation_matrix.iloc[i, j]
+                    
+                    # Skip NaN correlations
+                    if pd.isna(corr_value):
+                        continue
+                    
+                    correlation_pair = (stock1, stock2, float(corr_value))
+                    
+                    # FIXED: Separate positive and negative correlations
+                    if corr_value >= 0.1:  # Minimum threshold for positive
+                        positive_correlations.append(correlation_pair)
+                    elif corr_value <= -0.1:  # Maximum threshold for negative
+                        negative_correlations.append(correlation_pair)
+            
+            # Sort correlations
+            positive_correlations.sort(key=lambda x: x[2], reverse=True)  # Highest positive first
+            negative_correlations.sort(key=lambda x: x[2])  # Lowest (most negative) first
+            
+            # Return top 5 of each
+            return positive_correlations[:5], negative_correlations[:5]
+            
+        except Exception as e:
+            print(f"Correlation insights error: {e}")
+            return [], []
 
 # Global instance
 market_analyzer = MarketAnalyzer()

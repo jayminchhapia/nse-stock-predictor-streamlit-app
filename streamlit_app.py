@@ -701,31 +701,33 @@ elif page == "📈 Market Analysis":
                 movers = market_analyzer.get_top_movers(analysis_symbols, limit=5)
                 
                 if movers['total_analyzed'] > 0:
+                    st.subheader(f"📊 Analysis Results ({movers['total_analyzed']} stocks analyzed)")
+                    
                     col1, col2 = st.columns(2)
                     
                     with col1:
                         st.subheader("🟢 Top Gainers")
                         if movers['top_gainers']:
-                            for gainer in movers['top_gainers']:
+                            for i, gainer in enumerate(movers['top_gainers'], 1):
                                 st.metric(
-                                    gainer['symbol'],
+                                    f"{i}. {gainer['symbol']}",
                                     f"₹{gainer['price']:.2f}",
                                     f"{gainer['change_pct']:+.2f}%"
                                 )
                         else:
-                            st.info("No gainers found")
+                            st.info("No stocks with positive performance found")
                     
                     with col2:
                         st.subheader("🔴 Top Losers")
                         if movers['top_losers']:
-                            for loser in movers['top_losers']:
+                            for i, loser in enumerate(movers['top_losers'], 1):
                                 st.metric(
-                                    loser['symbol'],
+                                    f"{i}. {loser['symbol']}",
                                     f"₹{loser['price']:.2f}",
                                     f"{loser['change_pct']:+.2f}%"
                                 )
                         else:
-                            st.info("No losers found")
+                            st.info("No stocks with negative performance found")
                 else:
                     st.warning("Unable to analyze market movers")
         
@@ -740,11 +742,11 @@ elif page == "📈 Market Analysis":
                     with col1:
                         st.subheader("⚡ High Volatility Stocks")
                         if volatility['high_volatility']:
-                            for stock in volatility['high_volatility']:
+                            for i, stock in enumerate(volatility['high_volatility'], 1):
                                 st.metric(
-                                    stock['symbol'],
+                                    f"{i}. {stock['symbol']}",
                                     f"{stock['volatility']:.1f}%",
-                                    f"Volume: {stock['avg_volume']:,.0f}"
+                                    f"Avg Volume: {stock['avg_volume']:,.0f}"
                                 )
                         else:
                             st.info("No high volatility stocks found")
@@ -752,11 +754,11 @@ elif page == "📈 Market Analysis":
                     with col2:
                         st.subheader("🔒 Low Volatility Stocks")
                         if volatility['low_volatility']:
-                            for stock in volatility['low_volatility']:
+                            for i, stock in enumerate(volatility['low_volatility'], 1):
                                 st.metric(
-                                    stock['symbol'],
+                                    f"{i}. {stock['symbol']}",
                                     f"{stock['volatility']:.1f}%",
-                                    f"Volume: {stock['avg_volume']:,.0f}"
+                                    f"Avg Volume: {stock['avg_volume']:,.0f}"
                                 )
                         else:
                             st.info("No low volatility stocks found")
@@ -792,41 +794,77 @@ elif page == "📈 Market Analysis":
                     
                     st.plotly_chart(fig, use_container_width=True)
                     
-                    # Show correlations - FIXED
-                    st.subheader("🔍 Correlation Insights")
+                    # Get correlation insights - FIXED
+                    positive_corrs, negative_corrs = market_analyzer.get_correlation_insights(correlation_matrix)
                     
-                    # Get correlation pairs
-                    correlations = []
-                    for i in range(len(correlation_matrix.columns)):
-                        for j in range(i+1, len(correlation_matrix.columns)):
-                            stock1 = correlation_matrix.columns[i]
-                            stock2 = correlation_matrix.columns[j]
-                            corr_value = correlation_matrix.iloc[i, j]
-                            correlations.append((stock1, stock2, corr_value))
-                    
-                    if correlations:
-                        # Sort by correlation value
-                        correlations.sort(key=lambda x: x[2], reverse=True)
+                    if positive_corrs or negative_corrs:
+                        st.subheader("🔍 Correlation Insights")
                         
                         col1, col2 = st.columns(2)
                         
                         with col1:
-                            st.write("**Highest Positive Correlations:**")
-                            positive_corrs = [c for c in correlations if c[2] > 0][:5]
-                            for stock1, stock2, corr in positive_corrs:
-                                st.write(f"• {stock1} ↔ {stock2}: {corr:.3f}")
+                            st.write("**🟢 Strongest Positive Correlations:**")
+                            if positive_corrs:
+                                for stock1, stock2, corr in positive_corrs:
+                                    st.write(f"• {stock1} ↔ {stock2}: **{corr:.3f}**")
+                            else:
+                                st.info("No strong positive correlations found")
                         
                         with col2:
-                            st.write("**Lowest/Negative Correlations:**")
-                            negative_corrs = [c for c in correlations if c[2] < 0.5][-5:]
-                            for stock1, stock2, corr in negative_corrs:
-                                st.write(f"• {stock1} ↔ {stock2}: {corr:.3f}")
+                            st.write("**🔴 Strongest Negative Correlations:**")
+                            if negative_corrs:
+                                for stock1, stock2, corr in negative_corrs:
+                                    st.write(f"• {stock1} ↔ {stock2}: **{corr:.3f}**")
+                            else:
+                                st.info("No strong negative correlations found")
+                    else:
+                        st.info("No significant correlations found")
                 
                 else:
                     st.warning("Unable to calculate correlations")
+        
+        # Sector Analysis
+        if st.button("🏭 Sector Performance Analysis", key="analyze_sectors_btn"):
+            with st.spinner("Analyzing sector performance..."):
+                sectors = market_analyzer.get_sector_performance(analysis_symbols)
+                
+                if sectors:
+                    st.subheader("🏭 Sector Performance")
+                    
+                    sector_data = []
+                    for sector, data in sectors.items():
+                        sector_data.append({
+                            'Sector': sector,
+                            'Stock Count': data['stock_count'],
+                            'Avg Change %': f"{data['avg_change']:+.2f}%",
+                            'Stocks': ', '.join(data['stocks'][:3]) + ('...' if len(data['stocks']) > 3 else '')
+                        })
+                    
+                    df = pd.DataFrame(sector_data)
+                    st.dataframe(df, use_container_width=True)
+                else:
+                    st.warning("Unable to perform sector analysis")
     
     else:
         st.info("Please select at least 2 stocks for market analysis")
+    
+    # Help section
+    with st.expander("💡 Analysis Explanations"):
+        st.markdown("""
+        **Top Movers:**
+        - **Gainers**: Stocks with positive price changes (sorted by highest % gain)
+        - **Losers**: Stocks with negative price changes (sorted by worst % loss)
+        
+        **Volatility Analysis:**
+        - **High Volatility**: Stocks with above-median price volatility
+        - **Low Volatility**: Stocks with below-median price volatility
+        - Higher volatility = more price swings = higher risk/reward
+        
+        **Correlation Analysis:**
+        - **Positive Correlation**: Stocks that tend to move in the same direction
+        - **Negative Correlation**: Stocks that tend to move in opposite directions
+        - Values closer to +1 or -1 indicate stronger relationships
+        """)
 
 # Sidebar info
 st.sidebar.markdown("---")
