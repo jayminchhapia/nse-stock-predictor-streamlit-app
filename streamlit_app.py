@@ -426,6 +426,464 @@ elif page == "📋 Analysis History":
     else:
         st.info("No analysis history yet. Start analyzing stocks to build your history!")
 
+# Add this to your page selection options
+elif page == "📡 Yahoo Live Stream":
+    st.header("📡 Yahoo Finance Live Data Streaming")
+    st.caption("⏰ Data delayed by ~15 minutes | Updates every 30 seconds")
+    
+    # Market summary section
+    st.subheader("📊 Market Overview")
+    
+    if st.button("🔄 Get Market Summary"):
+        with st.spinner("Fetching market data..."):
+            summary_symbols = st.session_state.watchlist[:10] if st.session_state.watchlist else ['RELIANCE', 'TCS', 'HDFCBANK', 'INFY', 'WIPRO']
+            summary = live_engine.get_market_summary(summary_symbols)
+            
+            if summary:
+                col1, col2, col3, col4 = st.columns(4)
+                
+                with col1:
+                    st.metric("Total Stocks", summary['total_stocks'])
+                with col2:
+                    st.metric("Gainers", summary['gainers'], delta=None)
+                with col3:
+                    st.metric("Losers", summary['losers'], delta=None)
+                with col4:
+                    st.metric("Avg Change", f"{summary['avg_change_percent']:+.2f}%")
+                
+                st.info(f"📅 Market: {summary['market_state']} | Updated: {summary['last_updated'].strftime('%H:%M:%S')}")
+    
+    # Live streaming controls
+    st.subheader("🔴 Live Price Streaming")
+    
+    col1, col2, col3 = st.columns([2, 1, 1])
+    
+    with col1:
+        streaming_symbols = st.multiselect(
+            "Select Stocks for Live Streaming:",
+            options=st.session_state.watchlist + ['RELIANCE', 'TCS', 'HDFCBANK', 'INFY', 'WIPRO', 'ADANIPORTS', 'ASIANPAINT', 'AXISBANK', 'BAJAJ-AUTO', 'BAJFINANCE'],
+            default=['RELIANCE'] if not st.session_state.watchlist else st.session_state.watchlist[:3]
+        )
+    
+    with col2:
+        refresh_rate = st.selectbox(
+            "Refresh Rate:",
+            options=[15, 30, 60, 120],
+            index=1,
+            format_func=lambda x: f"{x} seconds"
+        )
+    
+    with col3:
+        max_symbols = st.number_input("Max Symbols:", min_value=1, max_value=20, value=5)
+    
+    # Limit symbols to prevent overload
+    if len(streaming_symbols) > max_symbols:
+        streaming_symbols = streaming_symbols[:max_symbols]
+        st.warning(f"⚠️ Limited to {max_symbols} symbols to prevent API overload")
+    
+    # Live streaming interface
+    if streaming_symbols:
+        col1, col2 = st.columns([1, 1])
+        
+        with col1:
+            start_streaming = st.button("🔴 Start Live Stream", type="primary")
+        
+        with col2:
+            stop_streaming = st.button("🛑 Stop Stream")
+        
+        # Initialize session state
+        if 'streaming_active' not in st.session_state:
+            st.session_state.streaming_active = False
+        
+        if start_streaming:
+            st.session_state.streaming_active = True
+            live_engine.refresh_interval = refresh_rate
+            
+            # Create containers for live data display
+            live_containers = {}
+            status_container = st.empty()
+            
+            for symbol in streaming_symbols:
+                with st.expander(f"📈 {symbol} - Live Data", expanded=True):
+                    col1, col2, col3, col4 = st.columns(4)
+                    
+                    with col1:
+                        price_container = st.empty()
+                    with col2:
+                        change_container = st.empty()
+                    with col3:
+                        volume_container = st.empty()
+                    with col4:
+                        ml_container = st.empty()
+                    
+                    # Additional details row
+                    detail_col1, detail_col2, detail_col3 = st.columns(3)
+                    with detail_col1:
+                        ohlc_container = st.empty()
+                    with detail_col2:
+                        market_container = st.empty()
+                    with detail_col3:
+                        timestamp_container = st.empty()
+                    
+                    live_containers[symbol] = {
+                        'price': price_container,
+                        'change': change_container,
+                        'volume': volume_container,
+                        'ml': ml_container,
+                        'ohlc': ohlc_container,
+                        'market': market_container,
+                        'timestamp': timestamp_container
+                    }
+            
+            # Price update callback
+            def price_update_callback(price_data):
+                symbol = price_data['symbol']
+                if symbol in live_containers:
+                    containers = live_containers[symbol]
+                    
+                    # Update price display
+                    containers['price'].metric(
+                        "Live Price",
+                        f"₹{price_data['price']:.2f}",
+                        f"{price_data['change']:+.2f}"
+                    )
+                    
+                    # Update change display
+                    containers['change'].metric(
+                        "Change %",
+                        f"{price_data['change_percent']:+.2f}%"
+                    )
+                    
+                    # Update volume
+                    containers['volume'].metric(
+                        "Volume",
+                        f"{price_data['volume']:,}"
+                    )
+                    
+                    # ML prediction (if model exists)
+                    try:
+                        if ml_trainer.model_exists(symbol, 'next_day'):
+                            model, scaler = ml_trainer.load_model(symbol, 'next_day')
+                            features, _, _ = data_engine.prepare_training_data(symbol, '6mo', 1)
+                            
+                            if features is not None and model is not None:
+                                latest_features = features.iloc[-1:].values
+                                features_scaled = scaler.transform(latest_features)
+                                probability = model.predict_proba(features_scaled)[0][1]
+                                
+                                if probability >= 0.6:
+                                    recommendation = "BUY"
+                                    color = "normal"
+                                elif probability <= 0.4:
+                                    recommendation = "SELL"
+                                    color = "inverse"
+                                else:
+                                    recommendation = "HOLD"
+                                    color = "off"
+                                
+                                containers['ml'].metric(
+                                    "ML Signal",
+                                    recommendation,
+                                    f"{probability*100:.1f}%"
+                                )
+                            else:
+                                containers['ml'].info("🤖 Training...")
+                        else:
+                            containers['ml'].info("🤖 No Model")
+                    except Exception as e:
+                        containers['ml'].warning("ML Error")
+                    
+                    # OHLC data
+                    containers['ohlc'].markdown(f"""
+                    **OHLC:**
+                    - Open: ₹{price_data['open']:.2f}
+                    - High: ₹{price_data['high']:.2f}
+                    - Low: ₹{price_data['low']:.2f}
+                    """)
+                    
+                    # Market status
+                    containers['market'].info(f"📊 {price_data['market_state']} | {price_data['data_source']}")
+                    
+                    # Timestamp
+                    containers['timestamp'].caption(f"🕒 {price_data['timestamp'].strftime('%H:%M:%S')} | ~{price_data['delay_minutes']}min delay")
+            
+            # Add subscribers and start streaming
+            for symbol in streaming_symbols:
+                live_engine.add_subscriber(symbol, price_update_callback)
+            
+            live_engine.start_streaming(streaming_symbols)
+            
+            # Status updates
+            status_container.success(f"🔴 Live streaming active for {len(streaming_symbols)} stocks | Refresh: {refresh_rate}s")
+            
+            st.info("""
+            📡 **Live Streaming Active!**
+            - Data refreshes automatically every 30 seconds
+            - Yahoo Finance data is delayed by ~15 minutes
+            - ML predictions update with each price refresh
+            - Keep this page open for continuous updates
+            """)
+        
+        if stop_streaming or st.session_state.get('stop_requested', False):
+            if st.session_state.streaming_active:
+                live_engine.stop_streaming()
+                st.session_state.streaming_active = False
+                st.success("🛑 Live streaming stopped")
+    
+    # Manual price check section
+    st.subheader("🔍 Quick Price Check")
+    
+    col1, col2 = st.columns([2, 1])
+    
+    with col1:
+        check_symbol = st.text_input("Check Stock Price:", value="RELIANCE", placeholder="Enter NSE symbol")
+    
+    with col2:
+        if st.button("📊 Get Price"):
+            if check_symbol:
+                with st.spinner(f"Fetching data for {check_symbol}..."):
+                    price_data = live_engine.get_live_price(check_symbol)
+                    
+                    if price_data:
+                        col1, col2, col3 = st.columns(3)
+                        
+                        with col1:
+                            st.metric("Price", f"₹{price_data['price']:.2f}")
+                        with col2:
+                            st.metric("Change", f"₹{price_data['change']:+.2f}")
+                        with col3:
+                            st.metric("Change %", f"{price_data['change_percent']:+.2f}%")
+                        
+                        # Additional info
+                        st.info(f"""
+                        📊 **Details:**
+                        - Volume: {price_data['volume']:,}
+                        - Open: ₹{price_data['open']:.2f} | High: ₹{price_data['high']:.2f} | Low: ₹{price_data['low']:.2f}
+                        - Market: {price_data['market_state']} | Source: {price_data['data_source']}
+                        - Last Updated: {price_data['timestamp'].strftime('%H:%M:%S')}
+                        """)
+                    else:
+                        st.error(f"Unable to fetch data for {check_symbol}")
+    
+    # Bulk price check
+    st.subheader("📋 Bulk Price Check")
+    
+    if st.button("📊 Check All Watchlist Prices"):
+        if st.session_state.watchlist:
+            with st.spinner("Fetching bulk data..."):
+                bulk_data = live_engine.get_multiple_prices(st.session_state.watchlist)
+                
+                if bulk_data:
+                    # Create summary table
+                    table_data = []
+                    for symbol, data in bulk_data.items():
+                        table_data.append({
+                            'Symbol': symbol,
+                            'Price': f"₹{data['price']:.2f}",
+                            'Change': f"₹{data['change']:+.2f}",
+                            'Change %': f"{data['change_percent']:+.2f}%",
+                            'Volume': f"{data['volume']:,}",
+                            'Market': data['market_state']
+                        })
+                    
+                    df = pd.DataFrame(table_data)
+                    
+                    # Color coding function
+                    def highlight_changes(val):
+                        if 'Change %' in val.name:
+                            if '+' in str(val):
+                                return 'color: green'
+                            elif '-' in str(val):
+                                return 'color: red'
+                        return ''
+                    
+                    styled_df = df.style.applymap(highlight_changes)
+                    st.dataframe(styled_df, use_container_width=True)
+                    
+                    # Download option
+                    csv = df.to_csv(index=False)
+                    st.download_button(
+                        "📥 Download Bulk Data",
+                        csv,
+                        file_name=f"bulk_prices_{datetime.now().strftime('%Y%m%d_%H%M')}.csv",
+                        mime="text/csv"
+                    )
+                else:
+                    st.warning("No data retrieved for watchlist stocks")
+        else:
+            st.info("Add stocks to your watchlist first!")
+    
+    # Performance tips
+    with st.expander("💡 Performance Tips"):
+        st.markdown("""
+        **Optimize Your Live Streaming:**
+        
+        1. **Limit Symbols:** Keep streaming to 5-10 stocks max
+        2. **Adjust Refresh Rate:** Use 60+ seconds for casual monitoring
+        3. **Close Other Tabs:** Reduces memory usage
+        4. **Stable Internet:** Ensures consistent data fetching
+        5. **Market Hours:** Best data availability during 9:15 AM - 3:30 PM IST
+        
+        **Data Limitations:**
+        - Yahoo Finance data is delayed by ~15 minutes
+        - Some stocks may have longer delays
+        - Weekend/holiday data may be stale
+        - High-frequency updates not supported
+        """)
+
+elif page == "📈 Market Analysis":
+    st.header("📈 Advanced Market Analysis")
+    st.caption("Powered by Yahoo Finance delayed data")
+    
+    # Analysis options
+    analysis_symbols = st.multiselect(
+        "Select Stocks for Analysis:",
+        options=st.session_state.watchlist + ['RELIANCE', 'TCS', 'HDFCBANK', 'INFY', 'WIPRO', 'ADANIPORTS', 'ASIANPAINT', 'AXISBANK', 'BAJAJ-AUTO', 'BAJFINANCE', 'BHARTIARTL', 'BPCL', 'CIPLA', 'COALINDIA', 'DRREDDY'],
+        default=st.session_state.watchlist[:10] if st.session_state.watchlist else ['RELIANCE', 'TCS', 'HDFCBANK', 'INFY', 'WIPRO']
+    )
+    
+    if analysis_symbols and len(analysis_symbols) >= 2:
+        
+        # Top Movers Analysis
+        if st.button("🚀 Analyze Top Movers"):
+            with st.spinner("Analyzing market movers..."):
+                movers = market_analyzer.get_top_movers(analysis_symbols, limit=5)
+                
+                if movers['total_analyzed'] > 0:
+                    col1, col2 = st.columns(2)
+                    
+                    with col1:
+                        st.subheader("🟢 Top Gainers")
+                        for gainer in movers['top_gainers']:
+                            st.metric(
+                                gainer['symbol'],
+                                f"₹{gainer['price']:.2f}",
+                                f"{gainer['change_pct']:+.2f}%"
+                            )
+                    
+                    with col2:
+                        st.subheader("🔴 Top Losers")
+                        for loser in movers['top_losers']:
+                            st.metric(
+                                loser['symbol'],
+                                f"₹{loser['price']:.2f}",
+                                f"{loser['change_pct']:+.2f}%"
+                            )
+                else:
+                    st.warning("Unable to analyze market movers")
+        
+        # Sector Analysis
+        if st.button("🏭 Sector Performance Analysis"):
+            with st.spinner("Analyzing sector performance..."):
+                sectors = market_analyzer.get_sector_performance(analysis_symbols)
+                
+                if sectors:
+                    st.subheader("🏭 Sector Performance")
+                    
+                    sector_data = []
+                    for sector, data in sectors.items():
+                        sector_data.append({
+                            'Sector': sector,
+                            'Stock Count': data['stock_count'],
+                            'Avg Change %': f"{data['avg_change']:+.2f}%",
+                            'Stocks': ', '.join(data['stocks'][:3]) + ('...' if len(data['stocks']) > 3 else '')
+                        })
+                    
+                    df = pd.DataFrame(sector_data)
+                    st.dataframe(df, use_container_width=True)
+                else:
+                    st.warning("Unable to perform sector analysis")
+        
+        # Volatility Analysis
+        if st.button("📊 Volatility Analysis"):
+            with st.spinner("Analyzing volatility..."):
+                volatility = market_analyzer.get_volatility_analysis(analysis_symbols)
+                
+                if volatility['high_volatility']:
+                    col1, col2 = st.columns(2)
+                    
+                    with col1:
+                        st.subheader("⚡ High Volatility Stocks")
+                        for stock in volatility['high_volatility']:
+                            st.metric(
+                                stock['symbol'],
+                                f"{stock['volatility']:.1f}%",
+                                f"Volume: {stock['avg_volume']:,.0f}"
+                            )
+                    
+                    with col2:
+                        st.subheader("🔒 Low Volatility Stocks")
+                        for stock in volatility['low_volatility']:
+                            st.metric(
+                                stock['symbol'],
+                                f"{stock['volatility']:.1f}%",
+                                f"Volume: {stock['avg_volume']:,.0f}"
+                            )
+                    
+                    st.info(f"📊 Average Market Volatility: {volatility['avg_market_volatility']:.1f}%")
+                else:
+                    st.warning("Unable to perform volatility analysis")
+        
+        # Correlation Analysis
+        if st.button("🔗 Correlation Analysis"):
+            with st.spinner("Calculating correlations..."):
+                correlation_matrix = market_analyzer.get_correlation_analysis(analysis_symbols)
+                
+                if not correlation_matrix.empty:
+                    st.subheader("🔗 Stock Correlation Matrix")
+                    
+                    # Create heatmap using Plotly
+                    import plotly.express as px
+                    
+                    fig = px.imshow(
+                        correlation_matrix.values,
+                        labels=dict(x="Stock", y="Stock", color="Correlation"),
+                        x=correlation_matrix.columns,
+                        y=correlation_matrix.index,
+                        color_continuous_scale="RdBu_r",
+                        aspect="auto"
+                    )
+                    
+                    fig.update_layout(
+                        title="Stock Price Correlation Matrix",
+                        height=600
+                    )
+                    
+                    st.plotly_chart(fig, use_container_width=True)
+                    
+                    # Show top correlations
+                    st.subheader("🔍 Strong Correlations")
+                    
+                    # Get correlation pairs
+                    correlations = []
+                    for i in range(len(correlation_matrix.columns)):
+                        for j in range(i+1, len(correlation_matrix.columns)):
+                            stock1 = correlation_matrix.columns[i]
+                            stock2 = correlation_matrix.columns[j]
+                            corr_value = correlation_matrix.iloc[i, j]
+                            correlations.append((stock1, stock2, corr_value))
+                    
+                    # Sort by absolute correlation
+                    correlations.sort(key=lambda x: abs(x[2]), reverse=True)
+                    
+                    col1, col2 = st.columns(2)
+                    
+                    with col1:
+                        st.write("**Highest Positive Correlations:**")
+                        for stock1, stock2, corr in correlations[:5]:
+                            st.write(f"• {stock1} ↔ {stock2}: {corr:.3f}")
+                    
+                    with col2:
+                        st.write("**Lowest Correlations:**")
+                        for stock1, stock2, corr in correlations[-5:]:
+                            st.write(f"• {stock1} ↔ {stock2}: {corr:.3f}")
+                
+                else:
+                    st.warning("Unable to calculate correlations")
+    
+    else:
+        st.info("Please select at least 2 stocks for market analysis")
+
 # Sidebar info
 st.sidebar.markdown("---")
 st.sidebar.header("📊 System Info")
